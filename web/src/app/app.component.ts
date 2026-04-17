@@ -9,7 +9,7 @@ import {
   DEFAULT_CONCURRENCY,
   DEFAULT_PARALLEL_FILES,
 } from './core/translation.service';
-import { parseSrt } from './core/srt-parser';
+import { parseSubtitle } from './core/subtitle-formats';
 import { LANGUAGES } from './core/languages';
 import { PROVIDER_PRESETS, PROVIDER_KEYS } from './core/providers';
 import {
@@ -70,7 +70,8 @@ export class AppComponent implements OnDestroy {
   errorMessage = signal('');
   isZipping = signal(false);
 
-  private nextFileIdx = 0;
+  private workQueue: number[] = [];
+  private activeWorkers = 0;
 
   // Computed
   currentPreset = computed(() => PROVIDER_PRESETS[this.providerType()]);
@@ -124,9 +125,7 @@ export class AppComponent implements OnDestroy {
     return true;
   });
 
-  canRetryFailed = computed(
-    () => !this.isTranslating() && this.failedFiles().length > 0
-  );
+  canRetryFailed = computed(() => this.failedFiles().length > 0);
 
   apiKeyWarning = computed<string | null>(() => {
     const raw = this.apiKey();
@@ -219,29 +218,57 @@ export class AppComponent implements OnDestroy {
     this.errorMessage.set('');
     const incoming: UploadedFile[] = [];
     const existingNames = new Set(this.files().map((f) => f.name));
+    const rejected: Array<{ name: string; reason: string }> = [];
 
     for (const file of Array.from(fileList)) {
       const lower = file.name.toLowerCase();
-      if (!SUBTITLE_EXTS.some((ext) => lower.endsWith(ext))) continue;
+      if (!SUBTITLE_EXTS.some((ext) => lower.endsWith(ext))) {
+        rejected.push({ name: file.name, reason: 'unsupported extension' });
+        continue;
+      }
       if (existingNames.has(file.name)) continue;
+
       const content = await this.readFile(file);
-      incoming.push({
-        name: file.name,
-        content,
-        blockCount: parseSrt(content).length,
-      });
+      try {
+        const doc = parseSubtitle(file.name, content);
+        if (doc.blocks.length === 0) {
+          rejected.push({ name: file.name, reason: 'no subtitle blocks found' });
+          continue;
+        }
+        incoming.push({
+          name: file.name,
+          blockCount: doc.blocks.length,
+          doc,
+        });
+      } catch (err: any) {
+        rejected.push({
+          name: file.name,
+          reason: err?.message ?? 'could not be parsed',
+        });
+      }
     }
 
     if (incoming.length === 0 && this.files().length === 0) {
       this.errorMessage.set(
-        `Please select subtitle files (${SUBTITLE_EXTS.join(', ')}).`
+        rejected.length > 0
+          ? this.formatRejected(rejected)
+          : `Please select subtitle files (${SUBTITLE_EXTS.join(', ')}).`,
       );
       return;
+    }
+
+    if (rejected.length > 0) {
+      this.errorMessage.set(this.formatRejected(rejected));
     }
 
     this.files.update((current) => [...current, ...incoming]);
     this.fileStatuses.set([]);
     this.tracker.reset();
+  }
+
+  private formatRejected(rejected: Array<{ name: string; reason: string }>): string {
+    const details = rejected.map((r) => `${r.name} (${r.reason})`).join('; ');
+    return `Skipped: ${details}.`;
   }
 
   removeFile(index: number) {
@@ -278,7 +305,7 @@ export class AppComponent implements OnDestroy {
 
   // --- Translation ---
 
-  async startTranslation() {
+  startTranslation() {
     if (!this.canTranslate()) return;
 
     this.errorMessage.set('');
@@ -293,19 +320,19 @@ export class AppComponent implements OnDestroy {
       }))
     );
 
-    await this.runWorkers((idx) => idx, this.files().length);
+    this.enqueue(this.files().map((_, i) => i));
   }
 
-  async retryFailed() {
+  retryFailed() {
     if (!this.canRetryFailed()) return;
 
     this.errorMessage.set('');
 
-    // Find indices of failed files, reset them to pending
-    const statuses = this.fileStatuses();
+    // Reset failed files to pending and collect their indices.
     const retryIndices: number[] = [];
-    const next = statuses.map((s, i) => {
-      if (s.status === 'failed') {
+    this.fileStatuses.update((statuses) =>
+      statuses.map((s, i) => {
+        if (s.status !== 'failed') return s;
         retryIndices.push(i);
         return {
           ...s,
@@ -315,85 +342,96 @@ export class AppComponent implements OnDestroy {
           error: undefined,
           timeMs: undefined,
         };
-      }
-      return s;
-    });
+      })
+    );
 
     if (retryIndices.length === 0) return;
 
-    this.fileStatuses.set(next);
-
-    await this.runWorkers((i) => retryIndices[i], retryIndices.length);
+    this.enqueue(retryIndices);
   }
 
-  private async runWorkers(
-    mapIdx: (i: number) => number,
-    total: number
-  ) {
+  /**
+   * Push indices onto the shared work queue and make sure enough workers are
+   * running. Safe to call while a previous run is still in flight — new items
+   * are picked up by idle workers, or fresh ones are spawned up to
+   * `parallelFiles()`.
+   */
+  private enqueue(indices: number[]) {
+    if (indices.length === 0) return;
+
+    const wasIdle = this.activeWorkers === 0;
+    this.workQueue.push(...indices);
+
+    if (wasIdle) {
+      this.tracker.begin();
+      this.isTranslating.set(true);
+    }
+
     const provider: ProviderConfig = {
       apiUrl: this.apiUrl(),
       apiKey: this.apiKey(),
       model: this.modelName(),
     };
 
-    this.tracker.begin();
-    this.isTranslating.set(true);
-    this.nextFileIdx = 0;
+    const desired = Math.min(this.parallelFiles(), this.workQueue.length + this.activeWorkers);
+    while (this.activeWorkers < desired) {
+      this.spawnWorker(provider);
+    }
+  }
 
-    const allFiles = this.files();
-    const parallelism = Math.max(
-      1,
-      Math.min(this.parallelFiles(), total)
-    );
-
-    const worker = async () => {
-      while (true) {
-        const i = this.nextFileIdx++;
-        if (i >= total) break;
-        const idx = mapIdx(i);
-
-        this.updateFileStatus(idx, { status: 'translating' });
-        const f = allFiles[idx];
-        const fileStart = performance.now();
-
-        try {
-          const content = await this.translationService.translateFile(
-            f.content,
-            this.sourceLang(),
-            this.targetLang(),
-            provider,
-            this.batchSize(),
-            this.concurrency(),
-            this.maxRetries(),
-            (progress) => {
-              this.updateFileStatus(idx, {
-                currentBatch: progress.currentBatch,
-                totalBatches: progress.totalBatches,
-              });
-            }
-          );
-
-          this.updateFileStatus(idx, {
-            status: 'done',
-            content,
-            timeMs: performance.now() - fileStart,
-          });
-        } catch (err: any) {
-          this.updateFileStatus(idx, {
-            status: 'failed',
-            error: err?.message ?? 'Translation failed',
-            timeMs: performance.now() - fileStart,
-          });
+  private spawnWorker(provider: ProviderConfig) {
+    this.activeWorkers++;
+    void (async () => {
+      try {
+        while (this.workQueue.length > 0) {
+          const idx = this.workQueue.shift()!;
+          await this.translateOne(idx, provider);
+        }
+      } finally {
+        this.activeWorkers--;
+        if (this.activeWorkers === 0 && this.workQueue.length === 0) {
+          this.tracker.finish();
+          this.isTranslating.set(false);
         }
       }
-    };
+    })();
+  }
 
-    await Promise.all(
-      Array.from({ length: parallelism }, () => worker())
-    );
+  private async translateOne(idx: number, provider: ProviderConfig) {
+    const f = this.files()[idx];
+    const fileStart = performance.now();
 
-    this.tracker.finish();
-    this.isTranslating.set(false);
+    this.updateFileStatus(idx, { status: 'translating' });
+
+    try {
+      const content = await this.translationService.translateDocument(
+        f.doc,
+        this.sourceLang(),
+        this.targetLang(),
+        provider,
+        this.batchSize(),
+        this.concurrency(),
+        this.maxRetries(),
+        (progress) => {
+          this.updateFileStatus(idx, {
+            currentBatch: progress.currentBatch,
+            totalBatches: progress.totalBatches,
+          });
+        }
+      );
+
+      this.updateFileStatus(idx, {
+        status: 'done',
+        content,
+        timeMs: performance.now() - fileStart,
+      });
+    } catch (err: any) {
+      this.updateFileStatus(idx, {
+        status: 'failed',
+        error: err?.message ?? 'Translation failed',
+        timeMs: performance.now() - fileStart,
+      });
+    }
   }
 
   private updateFileStatus(idx: number, update: Partial<FileStatus>) {
@@ -432,7 +470,9 @@ export class AppComponent implements OnDestroy {
   }
 
   private makeZipName(): string {
-    const stamp = new Date().toISOString().slice(0, 10);
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
     return `translora-${this.targetLangCode()}-${stamp}.zip`;
   }
 

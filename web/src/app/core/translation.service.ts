@@ -8,6 +8,7 @@ import {
   splitBatches,
   validateBatch,
 } from './srt-parser';
+import { SubtitleDocument } from './subtitle-formats/types';
 import { SYSTEM_PROMPT, buildUserMessage } from './translation-prompt';
 
 export interface ProviderConfig {
@@ -34,11 +35,12 @@ export class TranslationService {
   constructor(private http: HttpClient) {}
 
   /**
-   * Translate a full .srt document. Splits into batches, runs `concurrency`
-   * batches at a time, validates each response, and stitches the results.
+   * Translate a parsed subtitle document. The document's blocks are translated
+   * in batches and then stitched back together using the document's own
+   * `rebuild`, which preserves the source file's original format.
    */
-  async translateFile(
-    fileContent: string,
+  async translateDocument(
+    doc: SubtitleDocument,
     sourceLang: string,
     targetLang: string,
     provider: ProviderConfig,
@@ -47,12 +49,11 @@ export class TranslationService {
     maxRetries = DEFAULT_MAX_RETRIES,
     onProgress?: (p: TranslationProgress) => void,
   ): Promise<string> {
-    const blocks = parseSrt(fileContent);
-    if (blocks.length === 0) {
+    if (doc.blocks.length === 0) {
       throw new Error('No subtitle blocks found in file');
     }
 
-    const batches = splitBatches(blocks, batchSize);
+    const batches = splitBatches(doc.blocks, batchSize);
     const results: SubtitleBlock[][] = new Array(batches.length);
 
     // Simple worker pool: each worker pulls the next index until none left.
@@ -81,7 +82,7 @@ export class TranslationService {
 
     const translated: SubtitleBlock[] = [];
     for (const r of results) if (r) translated.push(...r);
-    return serializeSrt(translated);
+    return doc.rebuild(translated);
   }
 
   // ---------------------------------------------------------------------
