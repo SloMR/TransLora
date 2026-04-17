@@ -14,11 +14,12 @@ from pathlib import Path
 
 import httpx
 
-from .srt_parser import SubtitleBlock, parse_srt, serialize_srt, split_batches
+from .srt_parser import SubtitleBlock, split_batches
+from .formats import parse_subtitle
 from .config import DEFAULT_MAX_RETRIES, TranslationConfig
 from .batch_runner import FileTranslationError, translate_batch_with_retry
 from .time_tracker import EtaEstimator, format_duration
-from .live_status import Colors, LiveLine
+from .live_status import Colors, LiveLine, Ticker
 
 
 # Re-exports — callers (translora.py) import these names from translator
@@ -42,20 +43,25 @@ async def translate_file_async(
     Raises FileTranslationError on any batch that exhausts retries.
     """
     content = input_path.read_text(encoding="utf-8-sig")
-    blocks = parse_srt(content)
-    if not blocks:
+    try:
+        doc = parse_subtitle(input_path.name, content)
+    except ValueError as err:
+        print(f"Error: {err}", file=sys.stderr)
+        return
+
+    if not doc.blocks:
         print("Error: no subtitle blocks found in file", file=sys.stderr)
         return
 
-    batches = split_batches(blocks, cfg.batch_size)
+    batches = split_batches(doc.blocks, cfg.batch_size)
     total = len(batches)
     colors = Colors()
 
     if not cfg.quiet:
         print(
-            f"{colors.bold('Translating')} {colors.cyan(str(len(blocks)))} blocks "
+            f"{colors.bold('Translating')} {colors.cyan(str(len(doc.blocks)))} blocks "
             f"in {colors.cyan(str(total))} batches "
-            f"{colors.dim(f'({cfg.source_lang} → {cfg.target_lang})')}"
+            f"{colors.dim(f'({cfg.source_lang} → {cfg.target_lang}, {doc.format})')}"
         )
         if cfg.concurrency > 1:
             print(colors.dim(f"Concurrency: {cfg.concurrency}"))
@@ -69,10 +75,10 @@ async def translate_file_async(
     for r in translated_batches:
         translated.extend(r)
 
-    output_path.write_text(serialize_srt(translated), encoding="utf-8")
+    output_path.write_text(doc.rebuild(translated), encoding="utf-8")
     if not cfg.quiet:
         elapsed = time.time() - started_at
-        throughput = len(blocks) / elapsed if elapsed > 0 else 0
+        throughput = len(doc.blocks) / elapsed if elapsed > 0 else 0
         print(
             f"{colors.green('✓ Completed')} in {format_duration(elapsed)} "
             f"{colors.dim(f'({throughput:.1f} blocks/s)')}"
@@ -108,10 +114,22 @@ async def _run_batches(
     if live is not None:
         cfg.warn = lambda msg: live.println(colors.yellow(msg), file=sys.stderr)
 
+    # Shared with the ticker so the "batch" column keeps showing the last
+    # completed batch's time between completions.
+    last_batch_elapsed = 0.0
+
+    def render() -> None:
+        if live is not None:
+            _render_status(live, colors, total, last_batch_elapsed, eta)
+
+    ticker = Ticker(render, interval=1.0) if live is not None else None
+    if ticker is not None:
+        ticker.start()
+
     try:
         async with httpx.AsyncClient() as client:
             async def run_one(idx: int) -> None:
-                nonlocal failure
+                nonlocal failure, last_batch_elapsed
                 if failure:
                     return
                 async with semaphore:
@@ -126,14 +144,14 @@ async def _run_batches(
                         failure = e
                         return
 
+                    last_batch_elapsed = time.time() - batch_start
                     eta.record()
-                    if live is not None:
-                        _render_status(
-                            live, colors, total, time.time() - batch_start, eta,
-                        )
+                    render()
 
             await asyncio.gather(*(run_one(i) for i in range(total)))
     finally:
+        if ticker is not None:
+            ticker.stop()
         if live is not None:
             live.finalize()
         cfg.warn = original_warn
