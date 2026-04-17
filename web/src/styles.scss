@@ -1,1 +1,134 @@
-/* You can add global styles to this file, and also import other style files */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  // Brand
+  --color-blue: #2f7dd1;
+  --color-blue-hover: #3886dc;
+  --color-blue-soft: rgba(47, 125, 209, 0.12);
+  --color-bright-blue: #2997ff;
+
+  // Semantic
+  --color-success: #3fa467;
+  --color-success-soft: rgba(63, 164, 103, 0.10);
+  --color-danger: #d95555;
+  --color-danger-soft: rgba(217, 85, 85, 0.08);
+  --color-danger-text: #c14a4a;
+
+  // Surfaces
+  --bg-page: #efeef2;
+  --bg-nav: rgba(245, 244, 248, 0.78);
+  --bg-footer: #232326;
+  --bg-card: #fafaf9;
+  --bg-subtle: #f0eff3;
+  --bg-subtle-hover: #e8e7ec;
+  --bg-input: #f1f0f4;
+  --bg-input-hover: #e9e8ed;
+  --bg-input-focus: #fdfdfc;
+  --bg-pill-active: #2b2b2e;
+
+  // Text
+  --text-primary: #28282b;
+  --text-secondary: rgba(0, 0, 0, 0.72);
+  --text-tertiary: rgba(0, 0, 0, 0.52);
+  --text-inverse: #fafaf9;
+
+  // Borders / dividers
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-divider: rgba(0, 0, 0, 0.06);
+  --border-dropzone: rgba(0, 0, 0, 0.14);
+
+  // Focus ring
+  --focus-ring: rgba(47, 125, 209, 0.22);
+
+  // Fonts
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
+:root[data-theme='dark'] {
+  --bg-page: #1a1a1d;
+  --bg-nav: rgba(26, 26, 29, 0.78);
+  --bg-footer: #111113;
+  --bg-card: #232327;
+  --bg-subtle: #2a2a2e;
+  --bg-subtle-hover: #323237;
+  --bg-input: #2a2a2e;
+  --bg-input-hover: #323237;
+  --bg-input-focus: #1f1f23;
+  --bg-pill-active: #f0eff3;
+
+  --text-primary: #e8e7ea;
+  --text-secondary: rgba(232, 231, 234, 0.80);
+  --text-tertiary: rgba(232, 231, 234, 0.55);
+  --text-inverse: #1a1a1d;
+
+  --border-subtle: rgba(255, 255, 255, 0.09);
+  --border-divider: rgba(255, 255, 255, 0.07);
+  --border-dropzone: rgba(255, 255, 255, 0.16);
+
+  --color-blue: #4a9eff;
+  --color-blue-hover: #5fadff;
+  --color-blue-soft: rgba(74, 158, 255, 0.14);
+  --color-success: #5cb97f;
+  --color-success-soft: rgba(92, 185, 127, 0.12);
+  --color-danger: #e57373;
+  --color-danger-soft: rgba(229, 115, 115, 0.12);
+  --color-danger-text: #f0928c;
+  --focus-ring: rgba(74, 158, 255, 0.26);
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-body);
+  font-weight: 400;
+  line-height: 1.47;
+  letter-spacing: -0.374px;
+  color: var(--text-primary);
+  background: var(--bg-page);
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+a {
+  color: var(--color-blue);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+button {
+  font-family: var(--font-body);
+  cursor: pointer;
+  border: none;
+  outline: none;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-blue);
+    outline-offset: 2px;
+  }
+}
+
+input, select, textarea {
+  font-family: var(--font-body);
+
+  &:focus-visible {
+    outline: 2px solid var(--color-blue);
+    outline-offset: 2px;
+  }
+}
+
+::selection {
+  background: var(--color-blue);
+  color: var(--text-inverse);
+}
