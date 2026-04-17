@@ -113,7 +113,6 @@ export class AppComponent implements OnDestroy {
     this.doneFiles,
     this.inProgressFiles,
     this.pendingCount,
-    this.parallelFiles,
   );
 
   canTranslate = computed(() => {
@@ -320,7 +319,7 @@ export class AppComponent implements OnDestroy {
       }))
     );
 
-    this.enqueue(this.files().map((_, i) => i));
+    this.enqueue(this.files().map((_, i) => i), false);
   }
 
   retryFailed() {
@@ -347,7 +346,7 @@ export class AppComponent implements OnDestroy {
 
     if (retryIndices.length === 0) return;
 
-    this.enqueue(retryIndices);
+    this.enqueue(retryIndices, true);
   }
 
   /**
@@ -356,14 +355,18 @@ export class AppComponent implements OnDestroy {
    * are picked up by idle workers, or fresh ones are spawned up to
    * `parallelFiles()`.
    */
-  private enqueue(indices: number[]) {
+  private enqueue(indices: number[], isRetry: boolean) {
     if (indices.length === 0) return;
 
     const wasIdle = this.activeWorkers === 0;
     this.workQueue.push(...indices);
 
     if (wasIdle) {
-      this.tracker.begin();
+      if (isRetry) {
+        this.tracker.resume();
+      } else {
+        this.tracker.begin();
+      }
       this.isTranslating.set(true);
     }
 

@@ -25,7 +25,6 @@ export class TimeTracker {
     private doneFiles: Signal<TimedItem[]>,
     private inProgressFiles: Signal<ProgressItem[]>,
     private pendingCount: Signal<number>,
-    private parallelism: Signal<number>,
   ) {}
 
   // --- Raw numbers -------------------------------------------------------
@@ -44,30 +43,32 @@ export class TimeTracker {
   });
 
   /**
-   * Remaining wall-clock time in ms, or null while we have no sample data yet.
-   * In-progress files contribute only their *unfinished* portion (based on
-   * batches completed), not a full `avg` — that's the key accuracy fix.
+   * Remaining wall-clock time in ms, or null until we have any progress.
+   *
+   * Uses fractional file-equivalents: completed files count as 1, in-progress
+   * files contribute `currentBatch / totalBatches`. Dividing elapsed time by
+   * that fraction gives a rate we can extrapolate from — so ETA starts showing
+   * as soon as any file reports its first batch, including single-file runs.
    */
   etaMs = computed<number | null>(() => {
-    const avg = this.avgFileMs();
-    if (avg === 0) return null;
-
+    const done = this.doneFiles();
     const inProgress = this.inProgressFiles();
     const pending = this.pendingCount();
-    const unfinishedCount = pending + inProgress.length;
-    if (unfinishedCount === 0) return 0;
+    const totalFiles = done.length + inProgress.length + pending;
+    if (totalFiles === 0) return null;
 
-    // Sum of remaining work across unfinished files, measured in "file-time".
-    let remainingWorkMs = pending * avg;
+    let fractionalDone = done.length;
     for (const f of inProgress) {
-      const fraction = f.totalBatches
-        ? (f.currentBatch ?? 0) / f.totalBatches
-        : 0;
-      remainingWorkMs += (1 - fraction) * avg;
+      if (f.totalBatches && f.totalBatches > 0) {
+        fractionalDone += (f.currentBatch ?? 0) / f.totalBatches;
+      }
     }
+    if (fractionalDone <= 0) return null;
+    if (fractionalDone >= totalFiles) return 0;
 
-    const workers = Math.min(this.parallelism(), unfinishedCount);
-    return remainingWorkMs / workers;
+    const elapsed = this.elapsedMs();
+    if (elapsed <= 0) return null;
+    return (elapsed * (totalFiles - fractionalDone)) / fractionalDone;
   });
 
   // --- Formatted for templates ------------------------------------------
@@ -96,6 +97,19 @@ export class TimeTracker {
     const now = performance.now();
     this.totalMs.set(0);
     this.startMs.set(now);
+    this.nowMs.set(now);
+    this.running.set(true);
+    this.startTicker();
+  }
+
+  /**
+   * Continue an existing run after idle (e.g. retry-failed). Elapsed time
+   * picks up where the previous `finish()` left off instead of resetting to 0.
+   */
+  resume(): void {
+    const now = performance.now();
+    const prev = this.totalMs();
+    this.startMs.set(now - prev);
     this.nowMs.set(now);
     this.running.set(true);
     this.startTicker();
