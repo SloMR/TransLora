@@ -15,6 +15,8 @@ from core.lang_codes import lang_code
 from core.translator import translate_file_async
 from core.live_status import Colors, LiveLine, Ticker
 
+__version__ = "0.1.0"
+
 SUBTITLE_EXTS = {".srt", ".vtt", ".ass", ".ssa", ".sub", ".sbv"}
 
 EPILOG = """\
@@ -55,6 +57,8 @@ def _build_parser() -> argparse.ArgumentParser:
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    p.add_argument("--version", action="version",
+                   version=f"TransLora CLI {__version__}")
     p.add_argument("files", nargs="+", type=Path,
                    help="subtitle files or directories (.srt, .vtt, .ass, ...)")
     p.add_argument("--source", "-s", required=True,
