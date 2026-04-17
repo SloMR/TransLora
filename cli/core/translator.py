@@ -19,7 +19,7 @@ from .formats import parse_subtitle
 from .config import DEFAULT_MAX_RETRIES, TranslationConfig
 from .batch_runner import FileTranslationError, translate_batch_with_retry
 from .time_tracker import EtaEstimator, format_duration
-from .live_status import Colors, LiveLine
+from .live_status import Colors, LiveLine, Ticker
 
 
 # Re-exports — callers (translora.py) import these names from translator
@@ -114,10 +114,22 @@ async def _run_batches(
     if live is not None:
         cfg.warn = lambda msg: live.println(colors.yellow(msg), file=sys.stderr)
 
+    # Shared with the ticker so the "batch" column keeps showing the last
+    # completed batch's time between completions.
+    last_batch_elapsed = 0.0
+
+    def render() -> None:
+        if live is not None:
+            _render_status(live, colors, total, last_batch_elapsed, eta)
+
+    ticker = Ticker(render, interval=1.0) if live is not None else None
+    if ticker is not None:
+        ticker.start()
+
     try:
         async with httpx.AsyncClient() as client:
             async def run_one(idx: int) -> None:
-                nonlocal failure
+                nonlocal failure, last_batch_elapsed
                 if failure:
                     return
                 async with semaphore:
@@ -132,14 +144,14 @@ async def _run_batches(
                         failure = e
                         return
 
+                    last_batch_elapsed = time.time() - batch_start
                     eta.record()
-                    if live is not None:
-                        _render_status(
-                            live, colors, total, time.time() - batch_start, eta,
-                        )
+                    render()
 
             await asyncio.gather(*(run_one(i) for i in range(total)))
     finally:
+        if ticker is not None:
+            ticker.stop()
         if live is not None:
             live.finalize()
         cfg.warn = original_warn
