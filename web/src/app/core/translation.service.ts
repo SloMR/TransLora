@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { Subscription } from 'rxjs';
 import {
   SubtitleBlock,
   parseSrt,
@@ -108,7 +109,9 @@ export class TranslationService {
   ): Promise<SubtitleBlock[]> {
     throwIfCancelled(cancelSignal);
     const batchSrt = serializeSrt(inputBlocks);
-    const body = this.buildRequestBody(sourceLang, targetLang, batchSrt, provider.model);
+    const body = this.buildRequestBody(
+      sourceLang, targetLang, batchSrt, provider.model, inputBlocks.length,
+    );
     const url = sanitizeApiUrl(provider.apiUrl);
     const headers = buildHeaders(sanitizeApiKey(provider.apiKey));
     const firstBlockNum = inputBlocks[0].number;
@@ -173,9 +176,10 @@ export class TranslationService {
 
     return new Promise<ChatResponse>((resolve, reject) => {
       let settled = false;
+      let requestSub: Subscription | null = null;
 
       const cleanup = () => {
-        requestSub.unsubscribe();
+        requestSub?.unsubscribe();
         cancelSignal?.removeEventListener('abort', onAbort);
       };
 
@@ -190,7 +194,7 @@ export class TranslationService {
         settle(() => reject(new TranslationCancelledError()));
       };
 
-      const requestSub = this.http.post<ChatResponse>(url, body, { headers }).subscribe({
+      requestSub = this.http.post<ChatResponse>(url, body, { headers }).subscribe({
         next: (resp) => {
           settle(() => resolve(resp));
         },
@@ -211,14 +215,17 @@ export class TranslationService {
     targetLang: string,
     batchSrt: string,
     model: string,
+    blockCount: number,
   ): Record<string, unknown> {
     const body: Record<string, unknown> = {
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: buildUserMessage(sourceLang, targetLang, batchSrt) },
       ],
-      temperature: 0.3,
-      max_tokens: 4096,
+      temperature: 0.1,
+      max_tokens: Math.max(blockCount, 1) * 120,
+      stream: false,
+      cache_prompt: true,
     };
     if (model) body['model'] = model;
     return body;
