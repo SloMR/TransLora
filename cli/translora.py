@@ -15,7 +15,7 @@ from core.lang_codes import lang_code
 from core.translator import translate_file_async
 from core.live_status import Colors, LiveLine, Ticker
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 SUBTITLE_EXTS = {".srt", ".vtt", ".ass", ".ssa", ".sub", ".sbv"}
 
