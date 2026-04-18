@@ -118,10 +118,7 @@
             "styles": [
               "src/styles.scss"
             ],
-            "scripts": [],
-            "allowedCommonJsDependencies": [
-              "jszip"
-            ]
+            "scripts": []
           }
         }
       }
