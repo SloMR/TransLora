@@ -25,6 +25,9 @@ env/
 .env.*
 !.env.example
 
+# === uv ===
+.python-version
+
 # === IDE ===
 .vscode/
 .idea/
