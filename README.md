@@ -79,7 +79,7 @@ Set `NO_COLOR=1` to disable ANSI colors; output auto-falls back to plain lines w
 
 Small and medium LLMs have known failure modes on long subtitle files: skipping one-word blocks (`"Oh!"`, `"Hmm."`), merging sentences split across two blocks for timing, and drifting mid-file. TransLora defends against that with a five-step pipeline:
 
-1. Parse the `.srt` into numbered blocks with timestamps.
+1. Parse the subtitle file into numbered blocks with timestamps (SRT, VTT, ASS, SSA, SBV, SUB).
 2. Split blocks into batches small enough that the model can't drift.
 3. Send each batch with a structure-preserving system prompt.
 4. Validate the response: block count in = out, numbers and timestamps untouched.
@@ -102,7 +102,7 @@ Any OpenAI-compatible `/v1/chat/completions` endpoint. Tested targets:
 ```
 .
 ├── web/        Angular 19 app (primary interface)
-│   └── src/app/core/   SRT parser, prompt, languages, providers, time tracker, HTTP service
+│   └── src/app/core/   Subtitle parsers, prompt, languages, providers, time tracker, HTTP service
 ├── cli/        Python 3.10+ CLI
 │   ├── translora.py    Entry point
 │   └── core/           Batching, HTTP, retries, ETA, live terminal UI
@@ -118,7 +118,6 @@ Any OpenAI-compatible `/v1/chat/completions` endpoint. Tested targets:
 
 ## Roadmap
 
-- Support for additional subtitle formats (`.vtt`, `.ass`, `.sub`)
 - Side-by-side preview and per-block editing in the web app
 - Translation memory for character-voice consistency across a file
 - General document/text translation beyond subtitles

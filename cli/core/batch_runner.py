@@ -81,6 +81,7 @@ async def call_chat_api(
     client: httpx.AsyncClient,
     batch_srt: str,
     cfg: TranslationConfig,
+    block_count: int,
 ) -> str:
     """POST one batch to the OpenAI-compatible chat endpoint, return raw text."""
     body: dict = {
@@ -89,8 +90,10 @@ async def call_chat_api(
             {"role": "user", "content":
                 f"Translate from {cfg.source_lang} to {cfg.target_lang}:\n\n{batch_srt}"},
         ],
-        "temperature": 0.3,
-        "max_tokens": 4096,
+        "temperature": 0.1,
+        "max_tokens": max(block_count, 1) * 120,
+        "stream": False,
+        "cache_prompt": True,
     }
     if cfg.model:
         body["model"] = cfg.model
@@ -120,7 +123,7 @@ async def translate_batch_with_retry(
     for attempt in range(1, cfg.max_retries + 1):
         tag = f"attempt {attempt}/{cfg.max_retries}"
         try:
-            raw = await call_chat_api(client, batch_srt, cfg)
+            raw = await call_chat_api(client, batch_srt, cfg, len(batch))
             output = parse_srt(strip_markdown_fences(raw))
             check = validate_batch(batch, output)
             if check.ok:

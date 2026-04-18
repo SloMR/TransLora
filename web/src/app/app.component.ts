@@ -8,6 +8,7 @@ import {
   DEFAULT_BATCH_SIZE,
   DEFAULT_CONCURRENCY,
   DEFAULT_PARALLEL_FILES,
+  TranslationCancelledError,
 } from './core/translation.service';
 import { parseSubtitle } from './core/subtitle-formats';
 import { LANGUAGES } from './core/languages';
@@ -38,6 +39,7 @@ const DEFAULTS = {
 })
 export class AppComponent implements OnDestroy {
   subtitleAccept = SUBTITLE_ACCEPT;
+  supportedFormats = SUBTITLE_EXTS.map((ext) => ext.slice(1).toUpperCase());
   languages = LANGUAGES;
   providerKeys = PROVIDER_KEYS;
   presets = PROVIDER_PRESETS;
@@ -66,12 +68,15 @@ export class AppComponent implements OnDestroy {
 
   // Translation state
   isTranslating = signal(false);
+  isCancelling = signal(false);
   fileStatuses = signal<FileStatus[]>([]);
   errorMessage = signal('');
   isZipping = signal(false);
 
   private workQueue: number[] = [];
   private activeWorkers = 0;
+  private runController: AbortController | null = null;
+  private cancelRequested = false;
 
   // Computed
   currentPreset = computed(() => PROVIDER_PRESETS[this.providerType()]);
@@ -124,7 +129,38 @@ export class AppComponent implements OnDestroy {
     return true;
   });
 
-  canRetryFailed = computed(() => this.failedFiles().length > 0);
+  canRetryFailed = computed(() => this.failedFiles().length > 0 && !this.isCancelling());
+
+  translateButtonLabel = computed(() => {
+    const fileCount = this.files().length;
+    if (fileCount === 0) return 'Translate subtitles';
+    if (fileCount === 1) return `Translate to ${this.targetLang()}`;
+    return `Translate ${fileCount} files to ${this.targetLang()}`;
+  });
+
+  translateHint = computed(() => {
+    if (this.isCancelling()) {
+      return 'Stopping translation and cancelling in-flight requests...';
+    }
+
+    if (this.isTranslating()) {
+      return 'Translation is running. Progress is shown below.';
+    }
+
+    if (this.files().length === 0) {
+      return 'Add subtitle files, then choose the provider and target language.';
+    }
+
+    if (this.currentPreset().needsKey && !this.apiKey()) {
+      return `Enter your ${this.currentPreset().label} API key to continue.`;
+    }
+
+    if (!this.apiUrl()) {
+      return 'Choose a provider or enter an API URL to continue.';
+    }
+
+    return `Ready to translate ${this.files().length} file${this.files().length > 1 ? 's' : ''} to ${this.targetLang()}.`;
+  });
 
   apiKeyWarning = computed<string | null>(() => {
     const raw = this.apiKey();
@@ -162,15 +198,21 @@ export class AppComponent implements OnDestroy {
   }
 
   ngOnDestroy() {
+    this.cancelRequested = true;
+    this.workQueue = [];
+    this.runController?.abort();
     this.tracker.destroy();
   }
 
   // --- Theme ---
 
   private initTheme() {
-    const prefersDark =
-      typeof window !== 'undefined' &&
-      window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+    if (typeof window === 'undefined') {
+      this.setTheme('light');
+      return;
+    }
+
+    const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
     this.setTheme(prefersDark ? 'dark' : 'light');
   }
 
@@ -180,7 +222,9 @@ export class AppComponent implements OnDestroy {
 
   private setTheme(next: 'light' | 'dark') {
     this.theme.set(next);
-    document.documentElement.setAttribute('data-theme', next);
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-theme', next);
+    }
   }
 
   // --- Files ---
@@ -261,8 +305,7 @@ export class AppComponent implements OnDestroy {
     }
 
     this.files.update((current) => [...current, ...incoming]);
-    this.fileStatuses.set([]);
-    this.tracker.reset();
+    this.clearRunState(false);
   }
 
   private formatRejected(rejected: Array<{ name: string; reason: string }>): string {
@@ -272,6 +315,7 @@ export class AppComponent implements OnDestroy {
 
   removeFile(index: number) {
     this.files.update((f) => f.filter((_, i) => i !== index));
+    this.clearRunState(true);
   }
 
   private readFile(file: File): Promise<string> {
@@ -302,12 +346,19 @@ export class AppComponent implements OnDestroy {
     this.maxRetries.set(DEFAULTS.maxRetries);
   }
 
+  swapLanguages() {
+    const source = this.sourceLang();
+    this.sourceLang.set(this.targetLang());
+    this.targetLang.set(source);
+  }
+
   // --- Translation ---
 
   startTranslation() {
     if (!this.canTranslate()) return;
 
     this.errorMessage.set('');
+    this.isCancelling.set(false);
 
     // Initialize statuses (fresh run)
     this.fileStatuses.set(
@@ -326,6 +377,7 @@ export class AppComponent implements OnDestroy {
     if (!this.canRetryFailed()) return;
 
     this.errorMessage.set('');
+    this.isCancelling.set(false);
 
     // Reset failed files to pending and collect their indices.
     const retryIndices: number[] = [];
@@ -362,13 +414,18 @@ export class AppComponent implements OnDestroy {
     this.workQueue.push(...indices);
 
     if (wasIdle) {
+      this.cancelRequested = false;
+      this.runController = new AbortController();
       if (isRetry) {
         this.tracker.resume();
       } else {
         this.tracker.begin();
       }
       this.isTranslating.set(true);
+      this.isCancelling.set(false);
     }
+
+    if (!this.runController) return;
 
     const provider: ProviderConfig = {
       apiUrl: this.apiUrl(),
@@ -378,32 +435,65 @@ export class AppComponent implements OnDestroy {
 
     const desired = Math.min(this.parallelFiles(), this.workQueue.length + this.activeWorkers);
     while (this.activeWorkers < desired) {
-      this.spawnWorker(provider);
+      this.spawnWorker(provider, this.runController.signal);
     }
   }
 
-  private spawnWorker(provider: ProviderConfig) {
+  cancelTranslation() {
+    if (!this.isTranslating() || this.isCancelling()) return;
+
+    this.cancelRequested = true;
+    this.isCancelling.set(true);
+    this.workQueue = [];
+    this.runController?.abort();
+  }
+
+  private spawnWorker(provider: ProviderConfig, cancelSignal: AbortSignal) {
     this.activeWorkers++;
     void (async () => {
       try {
-        while (this.workQueue.length > 0) {
+        while (this.workQueue.length > 0 && !cancelSignal.aborted) {
           const idx = this.workQueue.shift()!;
-          await this.translateOne(idx, provider);
+          await this.translateOne(idx, provider, cancelSignal);
         }
       } finally {
         this.activeWorkers--;
         if (this.activeWorkers === 0 && this.workQueue.length === 0) {
+          const cancelled = this.cancelRequested || cancelSignal.aborted;
+          this.runController = null;
           this.tracker.finish();
+
+          if (cancelled) {
+            this.cancelRequested = false;
+            // Mark anything still pending/translating as failed so the user
+            // keeps done/failed entries and can retry the interrupted ones.
+            this.fileStatuses.update((arr) =>
+              arr.map((s) =>
+                s.status === 'pending' || s.status === 'translating'
+                  ? {
+                      ...s,
+                      status: 'failed' as const,
+                      error: 'Cancelled',
+                      currentBatch: undefined,
+                      totalBatches: undefined,
+                    }
+                  : s,
+              ),
+            );
+          }
+
+          this.isCancelling.set(false);
           this.isTranslating.set(false);
         }
       }
     })();
   }
 
-  private async translateOne(idx: number, provider: ProviderConfig) {
+  private async translateOne(idx: number, provider: ProviderConfig, cancelSignal: AbortSignal) {
     const f = this.files()[idx];
     const fileStart = performance.now();
 
+    if (cancelSignal.aborted || this.cancelRequested) return;
     this.updateFileStatus(idx, { status: 'translating' });
 
     try {
@@ -416,19 +506,30 @@ export class AppComponent implements OnDestroy {
         this.concurrency(),
         this.maxRetries(),
         (progress) => {
+          if (cancelSignal.aborted || this.cancelRequested) return;
           this.updateFileStatus(idx, {
             currentBatch: progress.currentBatch,
             totalBatches: progress.totalBatches,
           });
-        }
+        },
+        cancelSignal,
       );
 
+      if (cancelSignal.aborted || this.cancelRequested) return;
       this.updateFileStatus(idx, {
         status: 'done',
         content,
         timeMs: performance.now() - fileStart,
       });
     } catch (err: any) {
+      if (
+        err instanceof TranslationCancelledError ||
+        cancelSignal.aborted ||
+        this.cancelRequested
+      ) {
+        return;
+      }
+
       this.updateFileStatus(idx, {
         status: 'failed',
         error: err?.message ?? 'Translation failed',
@@ -497,12 +598,19 @@ export class AppComponent implements OnDestroy {
 
   reset() {
     this.files.set([]);
-    this.fileStatuses.set([]);
-    this.errorMessage.set('');
-    this.tracker.reset();
+    this.clearRunState(true);
   }
 
   // --- Helpers ---
+
+  private clearRunState(clearError: boolean) {
+    this.workQueue = [];
+    this.fileStatuses.set([]);
+    this.tracker.reset();
+    if (clearError) {
+      this.errorMessage.set('');
+    }
+  }
 
   makeOutputName(name: string): string {
     const code = this.targetLangCode();

@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { firstValueFrom } from 'rxjs';
+import { Subscription } from 'rxjs';
 import {
   SubtitleBlock,
   parseSrt,
@@ -21,6 +21,13 @@ export interface ProviderConfig {
 export interface TranslationProgress {
   currentBatch: number;
   totalBatches: number;
+}
+
+export class TranslationCancelledError extends Error {
+  constructor(message = 'Translation cancelled') {
+    super(message);
+    this.name = 'TranslationCancelledError';
+  }
 }
 
 export const DEFAULT_MAX_RETRIES = 5;
@@ -48,10 +55,12 @@ export class TranslationService {
     concurrency = DEFAULT_CONCURRENCY,
     maxRetries = DEFAULT_MAX_RETRIES,
     onProgress?: (p: TranslationProgress) => void,
+    cancelSignal?: AbortSignal,
   ): Promise<string> {
     if (doc.blocks.length === 0) {
       throw new Error('No subtitle blocks found in file');
     }
+    throwIfCancelled(cancelSignal);
 
     const batches = splitBatches(doc.blocks, batchSize);
     const results: SubtitleBlock[][] = new Array(batches.length);
@@ -66,10 +75,11 @@ export class TranslationService {
 
     const worker = async () => {
       while (true) {
+        throwIfCancelled(cancelSignal);
         const i = nextIdx++;
         if (i >= batches.length) return;
         results[i] = await this.translateBatch(
-          batches[i], sourceLang, targetLang, provider, maxRetries,
+          batches[i], sourceLang, targetLang, provider, maxRetries, cancelSignal,
         );
         completed++;
         emit();
@@ -95,19 +105,22 @@ export class TranslationService {
     targetLang: string,
     provider: ProviderConfig,
     maxRetries: number,
+    cancelSignal?: AbortSignal,
   ): Promise<SubtitleBlock[]> {
+    throwIfCancelled(cancelSignal);
     const batchSrt = serializeSrt(inputBlocks);
-    const body = this.buildRequestBody(sourceLang, targetLang, batchSrt, provider.model);
+    const body = this.buildRequestBody(
+      sourceLang, targetLang, batchSrt, provider.model, inputBlocks.length,
+    );
     const url = sanitizeApiUrl(provider.apiUrl);
     const headers = buildHeaders(sanitizeApiKey(provider.apiKey));
     const firstBlockNum = inputBlocks[0].number;
     let lastError = '';
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      throwIfCancelled(cancelSignal);
       try {
-        const resp = await firstValueFrom(
-          this.http.post<ChatResponse>(url, body, { headers }),
-        );
+        const resp = await this.postChat(url, body, headers, cancelSignal);
         const output = parseSrt(stripMarkdownFences(resp.choices[0].message.content));
         const check = validateBatch(inputBlocks, output);
         if (check.ok) return output;
@@ -116,6 +129,10 @@ export class TranslationService {
         console.warn(`Batch validation failed (${attempt}/${maxRetries}):`, check.error);
 
       } catch (err: unknown) {
+        if (err instanceof TranslationCancelledError) {
+          throw err;
+        }
+
         const status = err instanceof HttpErrorResponse ? err.status : 0;
         lastError = this.extractServerMessage(err) || (err as Error)?.message || String(err);
 
@@ -133,14 +150,14 @@ export class TranslationService {
         if (status === 429 && attempt < maxRetries) {
           const delay = 2 ** attempt * 1000;
           console.warn(`Rate limited — waiting ${delay / 1000}s...`);
-          await sleep(delay);
+          await sleep(delay, cancelSignal);
           continue;
         }
       }
 
       // Small linear backoff between other retries (1s, 2s, 3s cap).
       if (attempt < maxRetries) {
-        await sleep(Math.min(attempt, 3) * 1000);
+        await sleep(Math.min(attempt, 3) * 1000, cancelSignal);
       }
     }
 
@@ -149,19 +166,66 @@ export class TranslationService {
     );
   }
 
+  private postChat(
+    url: string,
+    body: Record<string, unknown>,
+    headers: Record<string, string>,
+    cancelSignal?: AbortSignal,
+  ): Promise<ChatResponse> {
+    throwIfCancelled(cancelSignal);
+
+    return new Promise<ChatResponse>((resolve, reject) => {
+      let settled = false;
+      let requestSub: Subscription | null = null;
+
+      const cleanup = () => {
+        requestSub?.unsubscribe();
+        cancelSignal?.removeEventListener('abort', onAbort);
+      };
+
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        fn();
+      };
+
+      const onAbort = () => {
+        settle(() => reject(new TranslationCancelledError()));
+      };
+
+      requestSub = this.http.post<ChatResponse>(url, body, { headers }).subscribe({
+        next: (resp) => {
+          settle(() => resolve(resp));
+        },
+        error: (err) => {
+          settle(() => reject(err));
+        },
+        complete: () => {
+          settle(() => reject(new Error('Empty response from provider')));
+        },
+      });
+
+      cancelSignal?.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
   private buildRequestBody(
     sourceLang: string,
     targetLang: string,
     batchSrt: string,
     model: string,
+    blockCount: number,
   ): Record<string, unknown> {
     const body: Record<string, unknown> = {
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: buildUserMessage(sourceLang, targetLang, batchSrt) },
       ],
-      temperature: 0.3,
-      max_tokens: 4096,
+      temperature: 0.1,
+      max_tokens: Math.max(blockCount, 1) * 120,
+      stream: false,
+      cache_prompt: true,
     };
     if (model) body['model'] = model;
     return body;
@@ -236,6 +300,31 @@ function isRetryableStatus(status: number): boolean {
   return status === 0 || status === 408 || status === 429 || status >= 500;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+function throwIfCancelled(signal?: AbortSignal) {
+  if (signal?.aborted) {
+    throw new TranslationCancelledError();
+  }
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  throwIfCancelled(signal);
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+
+    const onAbort = () => {
+      cleanup();
+      reject(new TranslationCancelledError());
+    };
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    };
+
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
