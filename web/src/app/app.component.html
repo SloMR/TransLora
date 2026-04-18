@@ -1,415 +1,520 @@
-<!-- Navigation -->
 <nav class="nav">
   <div class="nav-inner">
     <div class="nav-brand">
-      <svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="m5 8 6 6"/>
-        <path d="m4 14 6-6 2-3"/>
-        <path d="M2 5h12"/>
-        <path d="M7 2h1"/>
-        <path d="m22 22-5-10-5 10"/>
-        <path d="M14 18h6"/>
-      </svg>
+      <img class="nav-icon" src="favicon.svg" alt="" />
       <span class="nav-logo">TransLora</span>
     </div>
-    <button class="nav-theme-toggle" type="button" (click)="toggleTheme()" [title]="theme() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'">
+
+    <button
+      class="nav-theme-toggle"
+      type="button"
+      (click)="toggleTheme()"
+      [title]="theme() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+    >
       @if (theme() === 'dark') {
-        <!-- Sun -->
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="4"/>
-          <path d="M12 2v2"/><path d="M12 20v2"/>
-          <path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/>
-          <path d="M2 12h2"/><path d="M20 12h2"/>
-          <path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2" />
+          <path d="M12 20v2" />
+          <path d="m4.93 4.93 1.41 1.41" />
+          <path d="m17.66 17.66 1.41 1.41" />
+          <path d="M2 12h2" />
+          <path d="M20 12h2" />
+          <path d="m6.34 17.66-1.41 1.41" />
+          <path d="m19.07 4.93-1.41 1.41" />
         </svg>
       } @else {
-        <!-- Moon -->
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
         </svg>
       }
     </button>
   </div>
 </nav>
 
-<!-- Main -->
 <main class="main">
-  <div class="container">
-
-    <!-- Step 1: Files -->
-    <div class="card">
-      <div class="card-header">
-        <span class="step-num">1</span>
-        <h2 class="card-title">Files</h2>
-        @if (files().length > 0) {
-          <span class="file-count">{{ files().length }} file{{ files().length > 1 ? 's' : '' }}, {{ totalBlocks() }} blocks</span>
-        }
+  <div class="page-shell">
+    <section class="hero">
+      <div class="hero-copy">
+        <h1 class="hero-title">Translate subtitle files with less clutter.</h1>
+        <p class="hero-text">
+          Upload files, choose the language pair and provider, then export translated subtitles.
+        </p>
+        <p class="hero-meta">
+          @if (files().length > 0) {
+            {{ files().length }} files &middot; {{ totalBlocks() }} blocks
+          } @else {
+            Supports {{ supportedFormats.join(' , ') }}
+          }
+        </p>
       </div>
+    </section>
 
-      @if (files().length === 0) {
-        <div
-          class="dropzone"
-          [class.dropzone-over]="dragOver()"
-          (dragover)="onDragOver($event)"
-          (dragleave)="onDragLeave($event)"
-          (drop)="onDrop($event)"
-          (click)="fileInput.click()"
-        >
-          <svg class="dropzone-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/>
-            <line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
-          <p class="dropzone-label">Drop subtitle files here or <span class="dropzone-link">browse</span></p>
-        </div>
-        <input #fileInput type="file" [attr.accept]="subtitleAccept" multiple (change)="onFileSelect($event)" hidden />
-      } @else {
-        <div class="file-list">
-          @for (f of files(); track f.name; let i = $index) {
-            <div class="file-chip">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-              </svg>
-              <span class="file-chip-name">{{ f.name }}</span>
-              <span class="file-chip-meta">{{ f.blockCount }}</span>
-              @if (!isTranslating()) {
-                <button class="file-chip-remove" (click)="removeFile(i)" title="Remove">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+    <section class="workspace">
+      <div class="workspace-grid" [class.workspace-grid-results]="hasResults()">
+        <div class="card card-files">
+          <div class="section-top">
+            <div>
+              <h2 class="card-title">Files</h2>
+              <p class="section-subtitle">Add the subtitle files you want to translate.</p>
+            </div>
+
+            @if (files().length > 0) {
+              <div class="section-meta">{{ files().length }} files</div>
+            }
+          </div>
+
+          @if (files().length === 0) {
+            <div
+              class="dropzone"
+              [class.dropzone-over]="dragOver()"
+              (dragover)="onDragOver($event)"
+              (dragleave)="onDragLeave($event)"
+              (drop)="onDrop($event)"
+              (click)="fileInput.click()"
+            >
+              <div class="dropzone-content">
+                <div class="dropzone-art">
+                  <svg class="dropzone-icon" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
                   </svg>
+                </div>
+
+                <div class="dropzone-copy">
+                  <h3 class="dropzone-title">Drop subtitle files here</h3>
+                  <p class="dropzone-label">Browse or drag files to start.</p>
+                </div>
+
+                <p class="dropzone-formats">{{ supportedFormats.join(' , ') }}</p>
+              </div>
+            </div>
+            <input #fileInput type="file" [attr.accept]="subtitleAccept" multiple (change)="onFileSelect($event)" hidden />
+          } @else {
+            <div class="file-list">
+              @for (f of files(); track f.name; let i = $index) {
+                <div class="file-card">
+                  <div class="file-card-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                  </div>
+
+                  <div class="file-card-copy">
+                    <span class="file-chip-name">{{ f.name }}</span>
+                    <span class="file-card-meta">{{ f.blockCount }} blocks</span>
+                  </div>
+
+                  @if (!isTranslating()) {
+                    <button class="file-chip-remove" type="button" (click)="removeFile(i)" title="Remove file">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+
+            @if (!isTranslating() && !isDone()) {
+              <div class="file-actions">
+                <button class="btn-add-more" type="button" (click)="addInput.click()">Add more files</button>
+                <input #addInput type="file" [attr.accept]="subtitleAccept" multiple (change)="onFileSelect($event)" hidden />
+              </div>
+            }
+          }
+        </div>
+
+        <div class="card card-settings" [class.card-settings-open]="showAdvanced()">
+          <div class="section-top">
+            <div>
+              <h2 class="card-title">Settings</h2>
+              <p class="section-subtitle">Choose language and provider.</p>
+            </div>
+
+            <div class="advanced-menu">
+              <button
+                class="advanced-toggle"
+                type="button"
+                [class.advanced-toggle-open]="showAdvanced()"
+                [attr.aria-expanded]="showAdvanced()"
+                (click)="showAdvanced.set(!showAdvanced())"
+              >
+                Advanced
+                <svg class="advanced-toggle-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+
+              @if (showAdvanced()) {
+                <section class="advanced-popover" role="dialog" aria-label="Advanced settings">
+                  <div class="advanced-popover-header">
+                    <div>
+                      <h3 class="advanced-popover-title">Advanced</h3>
+                      <p class="advanced-popover-text">Endpoint and request limits.</p>
+                    </div>
+
+                    <button class="advanced-close" type="button" (click)="showAdvanced.set(false)" title="Close advanced settings">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div class="advanced-popover-body">
+                    @if (providerType() !== 'custom') {
+                      <div class="field">
+                        <label class="label" for="api-url">API URL</label>
+                        <input
+                          id="api-url"
+                          type="text"
+                          class="input"
+                          [ngModel]="apiUrl()"
+                          (ngModelChange)="apiUrl.set($event)"
+                          placeholder="http://127.0.0.1:8080/v1/chat/completions"
+                        />
+                      </div>
+                    }
+
+                    @if (!currentPreset().needsKey) {
+                      <div class="field">
+                        <label class="label" for="api-key-adv">API Key</label>
+                        <input
+                          id="api-key-adv"
+                          type="password"
+                          class="input"
+                          [ngModel]="apiKey()"
+                          (ngModelChange)="apiKey.set($event)"
+                          placeholder="Optional"
+                        />
+                        @if (apiKeyWarning()) {
+                          <p class="field-warning">{{ apiKeyWarning() }}</p>
+                        }
+                      </div>
+                    }
+
+                    @if (providerType() === 'custom') {
+                      <div class="field">
+                        <label class="label" for="model-name-advanced">Model</label>
+                        <input
+                          id="model-name-advanced"
+                          type="text"
+                          class="input"
+                          [ngModel]="modelName()"
+                          (ngModelChange)="modelName.set($event)"
+                          placeholder="Optional model name"
+                        />
+                      </div>
+                    }
+
+                    <div class="field-grid">
+                      <div class="field field-num">
+                        <label class="label" for="batch-size">Batch size</label>
+                        <input id="batch-size" type="number" class="input" min="3" max="50" [ngModel]="batchSize()" (ngModelChange)="batchSize.set($event)" />
+                      </div>
+
+                      <div class="field field-num">
+                        <label class="label" for="concurrency">Concurrency</label>
+                        <input id="concurrency" type="number" class="input" min="1" max="20" [ngModel]="concurrency()" (ngModelChange)="concurrency.set($event)" />
+                      </div>
+
+                      <div class="field field-num">
+                        <label class="label" for="parallel-files">Parallel files</label>
+                        <input id="parallel-files" type="number" class="input" min="1" max="10" [ngModel]="parallelFiles()" (ngModelChange)="parallelFiles.set($event)" />
+                      </div>
+
+                      <div class="field field-num">
+                        <label class="label" for="max-retries">Max retries</label>
+                        <input id="max-retries" type="number" class="input" min="1" max="20" [ngModel]="maxRetries()" (ngModelChange)="maxRetries.set($event)" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="advanced-popover-footer">
+                    <p class="advanced-hint">Requests = concurrency x parallel files.</p>
+                    <div class="advanced-popover-actions">
+                      <button class="btn-reset" type="button" (click)="resetDefaults()">Reset</button>
+                      <button class="advanced-done" type="button" (click)="showAdvanced.set(false)">Done</button>
+                    </div>
+                  </div>
+                </section>
+              }
+            </div>
+          </div>
+
+          <div class="lang-grid">
+            <div class="lang-col">
+              <label class="label" for="source-lang">From</label>
+              <select id="source-lang" class="select" [ngModel]="sourceLang()" (ngModelChange)="sourceLang.set($event)">
+                @for (lang of languages; track lang.code) {
+                  <option [value]="lang.name">{{ lang.name }}</option>
+                }
+              </select>
+            </div>
+
+            <button class="lang-swap-button" type="button" (click)="swapLanguages()" title="Swap languages">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m17 3 4 4-4 4" />
+                <path d="M3 7h18" />
+                <path d="m7 21-4-4 4-4" />
+                <path d="M21 17H3" />
+              </svg>
+            </button>
+
+            <div class="lang-col">
+              <label class="label" for="target-lang">To</label>
+              <select id="target-lang" class="select" [ngModel]="targetLang()" (ngModelChange)="targetLang.set($event)">
+                @for (lang of languages; track lang.code) {
+                  <option [value]="lang.name">{{ lang.name }}</option>
+                }
+              </select>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="field">
+            <label class="label">Provider</label>
+            <div class="provider-pills">
+              @for (key of providerKeys; track key) {
+                <button
+                  class="pill"
+                  type="button"
+                  [class.pill-active]="providerType() === key"
+                  (click)="onProviderTypeChange(key)"
+                >
+                  {{ presets[key].label }}
                 </button>
               }
             </div>
-          }
-        </div>
-        @if (!isTranslating() && !isDone()) {
-          <button class="btn-add-more" (click)="addInput.click()">+ Add more files</button>
-          <input #addInput type="file" [attr.accept]="subtitleAccept" multiple (change)="onFileSelect($event)" hidden />
-        }
-      }
-    </div>
-
-    <!-- Step 2: Settings (Languages + Provider) -->
-    <div class="card">
-      <div class="card-header">
-        <span class="step-num">2</span>
-        <h2 class="card-title">Settings</h2>
-      </div>
-
-      <!-- Languages -->
-      <div class="lang-grid">
-        <div class="lang-col">
-          <label class="label" for="source-lang">From</label>
-          <select id="source-lang" class="select" [ngModel]="sourceLang()" (ngModelChange)="sourceLang.set($event)">
-            @for (lang of languages; track lang.code) {
-              <option [value]="lang.name">{{ lang.name }}</option>
-            }
-          </select>
-        </div>
-
-        <div class="lang-arrow-wrap">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
-          </svg>
-        </div>
-
-        <div class="lang-col">
-          <label class="label" for="target-lang">To</label>
-          <select id="target-lang" class="select" [ngModel]="targetLang()" (ngModelChange)="targetLang.set($event)">
-            @for (lang of languages; track lang.code) {
-              <option [value]="lang.name">{{ lang.name }}</option>
-            }
-          </select>
-        </div>
-      </div>
-
-      <div class="divider"></div>
-
-      <!-- Provider -->
-      <label class="label">Provider</label>
-      <div class="provider-pills">
-        @for (key of providerKeys; track key) {
-          <button
-            class="pill"
-            [class.pill-active]="providerType() === key"
-            (click)="onProviderTypeChange(key)"
-          >
-            {{ presets[key].label }}
-          </button>
-        }
-      </div>
-
-      @if (currentPreset().needsKey) {
-        <div class="field">
-          <label class="label" for="api-key">API Key</label>
-          <input
-            id="api-key"
-            type="password"
-            class="input"
-            [ngModel]="apiKey()"
-            (ngModelChange)="apiKey.set($event)"
-            placeholder="Enter your API key"
-          />
-          @if (apiKeyWarning()) {
-            <p class="field-warning">{{ apiKeyWarning() }}</p>
-          }
-        </div>
-      }
-
-      @if (currentPreset().needsKey) {
-        <div class="field">
-          <label class="label" for="model-name">Model</label>
-          <input
-            id="model-name"
-            type="text"
-            class="input"
-            list="model-suggestions"
-            [ngModel]="modelName()"
-            (ngModelChange)="modelName.set($event)"
-            placeholder="Model name (type or pick a suggestion)"
-          />
-          @if (currentPreset().models.length > 0) {
-            <datalist id="model-suggestions">
-              @for (m of currentPreset().models; track m) {
-                <option [value]="m"></option>
-              }
-            </datalist>
-          }
-        </div>
-      }
-
-      <button class="advanced-toggle" (click)="showAdvanced.set(!showAdvanced())">
-        {{ showAdvanced() ? 'Hide' : 'Show' }} advanced
-        <svg [class.rotated]="showAdvanced()" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="6 9 12 15 18 9"/>
-        </svg>
-      </button>
-
-      @if (showAdvanced()) {
-        <div class="advanced-fields">
-          <div class="field">
-            <label class="label" for="api-url">API URL</label>
-            <input id="api-url" type="text" class="input" [ngModel]="apiUrl()" (ngModelChange)="apiUrl.set($event)" placeholder="http://127.0.0.1:8080/v1/chat/completions" />
           </div>
 
-          <div class="field-row">
-            @if (!currentPreset().needsKey) {
-              <div class="field field-grow">
-                <label class="label" for="api-key-adv">API Key</label>
-                <input id="api-key-adv" type="password" class="input" [ngModel]="apiKey()" (ngModelChange)="apiKey.set($event)" placeholder="none" />
-                @if (apiKeyWarning()) {
-                  <p class="field-warning">{{ apiKeyWarning() }}</p>
+          @if (currentPreset().needsKey) {
+            <div class="field">
+              <label class="label" for="api-key">API Key</label>
+              <input
+                id="api-key"
+                type="password"
+                class="input"
+                [ngModel]="apiKey()"
+                (ngModelChange)="apiKey.set($event)"
+                placeholder="Paste your API key"
+              />
+              @if (apiKeyWarning()) {
+                <p class="field-warning">{{ apiKeyWarning() }}</p>
+              }
+            </div>
+          }
+
+          @if (providerType() === 'custom') {
+            <div class="field">
+              <label class="label" for="api-url-main">API URL</label>
+              <input
+                id="api-url-main"
+                type="text"
+                class="input"
+                [ngModel]="apiUrl()"
+                (ngModelChange)="apiUrl.set($event)"
+                placeholder="http://127.0.0.1:8080/v1/chat/completions"
+              />
+            </div>
+          } @else {
+            <div class="field">
+              <label class="label" for="model-name">Model</label>
+              <input
+                id="model-name"
+                type="text"
+                class="input"
+                list="model-suggestions"
+                [ngModel]="modelName()"
+                (ngModelChange)="modelName.set($event)"
+                [placeholder]="currentPreset().models.length > 0 ? 'Pick a model or type your own' : 'Optional model name'"
+              />
+              @if (currentPreset().models.length > 0) {
+                <datalist id="model-suggestions">
+                  @for (m of currentPreset().models; track m) {
+                    <option [value]="m"></option>
+                  }
+                </datalist>
+              }
+            </div>
+          }
+
+        </div>
+
+        @if (!hasResults()) {
+          <div class="action-card">
+            <p class="action-text">{{ translateHint() }}</p>
+
+            <div class="action-controls">
+              <button class="btn-translate" type="button" [disabled]="!canTranslate()" (click)="startTranslation()">
+                {{ translateButtonLabel() }}
+              </button>
+            </div>
+          </div>
+        }
+
+        @if (errorMessage() && !hasResults()) {
+          <p class="error standalone-error">{{ errorMessage() }}</p>
+        }
+
+        @if (hasResults()) {
+          <div class="results-card">
+            <div class="results-banner">
+              <div class="results-summary">
+                @if (isTranslating()) {
+                  <div class="summary-header">
+                    <span class="summary-dot pulsing"></span>
+                    <span class="summary-title">Translation in progress</span>
+                  </div>
+                } @else {
+                  <div class="summary-header">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="12" r="10" stroke="var(--color-success)" fill="var(--color-success-soft)" />
+                      <polyline points="9 12 11.5 14.5 16 9.5" stroke="var(--color-success)" />
+                    </svg>
+                    <span class="summary-title">Translation complete</span>
+                  </div>
+                }
+
+                <p class="summary-meta">
+                  {{ doneFiles().length }} done
+                  @if (failedFiles().length > 0) {
+                    &middot; {{ failedFiles().length }} failed
+                  }
+                  @if (isTranslating()) {
+                    &middot; {{ inProgressFiles().length }} in progress
+                  }
+                </p>
+              </div>
+
+              @if (isTranslating()) {
+                <button class="btn-cancel" type="button" (click)="cancelTranslation()" [disabled]="isCancelling()">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                  </svg>
+                  {{ isCancelling() ? 'Cancelling...' : 'Cancel' }}
+                </button>
+              } @else if (doneFiles().length > 1) {
+                <button class="btn-download-all" type="button" (click)="downloadAll()" [disabled]="isZipping()">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  {{ isZipping() ? 'Zipping...' : 'Download all' }}
+                </button>
+              }
+            </div>
+
+            <div class="progress-bar-wrap">
+              <div class="progress-track">
+                <div class="progress-fill" [style.width.%]="overallProgressPercent()"></div>
+              </div>
+              <span class="progress-pct">{{ overallProgressPercent() }}%</span>
+            </div>
+
+            <div class="progress-stats progress-stats-compact">
+              <div class="stat">
+                <span class="stat-value">{{ doneFiles().length }} / {{ fileStatuses().length }}</span>
+                <span class="stat-label">Files</span>
+              </div>
+              <div class="stat">
+                <span class="stat-value">{{ tracker.elapsedFormatted() }}</span>
+                <span class="stat-label">Elapsed</span>
+              </div>
+              <div class="stat">
+                <span class="stat-value">{{ isTranslating() ? (tracker.etaFormatted() || '--') : tracker.totalFormatted() }}</span>
+                <span class="stat-label">{{ isTranslating() ? 'ETA' : 'Total time' }}</span>
+              </div>
+            </div>
+
+            @if (inProgressFiles().length > 0) {
+              <div class="results-section">
+                <div class="section-label">Translating now</div>
+                @for (f of inProgressFiles(); track f.name) {
+                  <div class="progress-row">
+                    <span class="row-dot pulsing"></span>
+                    <span class="row-name">{{ f.name }}</span>
+                    <span class="row-batch">{{ f.currentBatch ?? 0 }} / {{ f.totalBatches ?? '?' }}</span>
+                    <div class="row-bar">
+                      <div class="row-bar-fill" [style.width.%]="fileProgressPercent(f)"></div>
+                    </div>
+                  </div>
                 }
               </div>
             }
-            @if (currentPreset().models.length === 0) {
-              <div class="field field-grow">
-                <label class="label" for="model-adv">Model</label>
-                <input id="model-adv" type="text" class="input" [ngModel]="modelName()" (ngModelChange)="modelName.set($event)" placeholder="Optional" />
+
+            @if (doneFiles().length > 0) {
+              <div class="results-section">
+                <div class="section-header">
+                  <div class="section-label">Completed</div>
+                </div>
+                <div class="scroll-list">
+                  @for (f of doneFiles(); track f.name) {
+                    <div class="result-item">
+                      <svg class="result-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      <span class="result-name">{{ f.outputName }}</span>
+                      <span class="result-meta">{{ f.blockCount }} blocks &middot; {{ tracker.formatMs(f.timeMs ?? 0) }}</span>
+                      <button class="result-dl" type="button" (click)="downloadFile(f)" title="Download file">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="7 10 12 15 17 10" />
+                          <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
+                      </button>
+                    </div>
+                  }
+                </div>
               </div>
             }
-          </div>
 
-          <div class="field-row">
-            <div class="field field-num">
-              <label class="label" for="batch-size">Batch size</label>
-              <input id="batch-size" type="number" class="input" min="3" max="50"
-                [ngModel]="batchSize()" (ngModelChange)="batchSize.set($event)" />
-            </div>
-            <div class="field field-num">
-              <label class="label" for="concurrency">Concurrency</label>
-              <input id="concurrency" type="number" class="input" min="1" max="20"
-                [ngModel]="concurrency()" (ngModelChange)="concurrency.set($event)" />
-            </div>
-            <div class="field field-num">
-              <label class="label" for="parallel-files">Parallel files</label>
-              <input id="parallel-files" type="number" class="input" min="1" max="10"
-                [ngModel]="parallelFiles()" (ngModelChange)="parallelFiles.set($event)" />
-            </div>
-            <div class="field field-num">
-              <label class="label" for="max-retries">Max retries</label>
-              <input id="max-retries" type="number" class="input" min="1" max="20"
-                [ngModel]="maxRetries()" (ngModelChange)="maxRetries.set($event)" />
-            </div>
-          </div>
-          <p class="advanced-hint">
-            Total in-flight requests = Concurrency &times; Parallel files.
-          </p>
-          <div class="advanced-footer">
-            <button type="button" class="btn-reset" (click)="resetDefaults()">Reset defaults</button>
-          </div>
-        </div>
-      }
-    </div>
-
-    <!-- Action button -->
-    @if (!hasResults()) {
-      <div class="action">
-        <button class="btn-translate" [disabled]="!canTranslate()" (click)="startTranslation()">
-          Translate{{ files().length > 1 ? ' ' + files().length + ' files' : '' }}
-        </button>
-        @if (errorMessage()) {
-          <p class="error">{{ errorMessage() }}</p>
-        }
-      </div>
-    }
-
-    <!-- Unified results card -->
-    @if (hasResults()) {
-      <div class="results-card">
-        <!-- Summary header -->
-        <div class="results-summary">
-          @if (isTranslating()) {
-            <div class="summary-header">
-              <span class="summary-dot pulsing"></span>
-              <span class="summary-title">Translating</span>
-            </div>
-          } @else {
-            <div class="summary-header">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10" stroke="var(--color-success)" fill="var(--color-success-soft)"/>
-                <polyline points="9 12 11.5 14.5 16 9.5" stroke="var(--color-success)"/>
-              </svg>
-              <span class="summary-title">Translation complete</span>
-            </div>
-          }
-          <span class="summary-counts">
-            <span class="cnt cnt-done">{{ doneFiles().length }} done</span>
             @if (failedFiles().length > 0) {
-              <span class="cnt cnt-failed">&middot; {{ failedFiles().length }} failed</span>
-            }
-            @if (isTranslating()) {
-              <span class="cnt cnt-progress">&middot; {{ inProgressFiles().length }} in progress</span>
-              <span class="cnt cnt-pending">&middot; {{ pendingCount() }} pending</span>
-            }
-          </span>
-        </div>
-
-        <!-- Overall progress bar -->
-        <div class="progress-bar-wrap">
-          <div class="progress-track">
-            <div class="progress-fill" [style.width.%]="overallProgressPercent()"></div>
-          </div>
-          <span class="progress-pct">{{ overallProgressPercent() }}%</span>
-        </div>
-
-        <!-- Stats row -->
-        <div class="progress-stats">
-          <div class="stat">
-            <span class="stat-value">{{ doneFiles().length }} / {{ fileStatuses().length }}</span>
-            <span class="stat-label">Files</span>
-          </div>
-          <div class="stat">
-            <span class="stat-value">{{ tracker.elapsedFormatted() }}</span>
-            <span class="stat-label">Elapsed</span>
-          </div>
-          <div class="stat">
-            <span class="stat-value">{{ isTranslating() ? (tracker.etaFormatted() || '--') : tracker.totalFormatted() }}</span>
-            <span class="stat-label">{{ isTranslating() ? 'Total ETA' : 'Total time' }}</span>
-          </div>
-          <div class="stat">
-            <span class="stat-value">{{ tracker.avgFormatted() || '--' }}</span>
-            <span class="stat-label">Avg/file</span>
-          </div>
-        </div>
-
-        <!-- In-progress files (during translation) -->
-        @if (inProgressFiles().length > 0) {
-          <div class="results-section">
-            <div class="section-label">Translating now</div>
-            @for (f of inProgressFiles(); track f.name) {
-              <div class="progress-row">
-                <span class="row-dot pulsing"></span>
-                <span class="row-name">{{ f.name }}</span>
-                <span class="row-batch">{{ f.currentBatch ?? 0 }} / {{ f.totalBatches ?? '?' }}</span>
-                <div class="row-bar">
-                  <div class="row-bar-fill" [style.width.%]="fileProgressPercent(f)"></div>
+              <div class="results-section">
+                <div class="section-header">
+                  <div class="section-label section-label-fail">Failed</div>
+                  @if (canRetryFailed()) {
+                    <button class="btn-retry" type="button" (click)="retryFailed()">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="23 4 23 10 17 10" />
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                      </svg>
+                      Retry failed
+                    </button>
+                  }
                 </div>
+                <div class="scroll-list">
+                  @for (f of failedFiles(); track f.name) {
+                    <div class="failed-item">
+                      <svg class="failed-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="15" y1="9" x2="9" y2="15" />
+                        <line x1="9" y1="9" x2="15" y2="15" />
+                      </svg>
+                      <div class="failed-text">
+                        <span class="failed-name">{{ f.name }}</span>
+                        <span class="failed-msg">{{ f.error }}</span>
+                      </div>
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+
+            @if (isDone()) {
+              <div class="results-footer">
+                <button class="btn-again" type="button" (click)="reset()">Translate more</button>
               </div>
             }
           </div>
         }
-
-        <!-- Done files -->
-        @if (doneFiles().length > 0) {
-          <div class="results-section">
-            <div class="section-header">
-              <div class="section-label">Completed</div>
-              @if (doneFiles().length > 1) {
-                <button class="btn-download-all" (click)="downloadAll()" [disabled]="isZipping()">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/>
-                    <line x1="12" y1="15" x2="12" y2="3"/>
-                  </svg>
-                  {{ isZipping() ? 'Zipping…' : 'Download all (.zip)' }}
-                </button>
-              }
-            </div>
-            <div class="scroll-list">
-              @for (f of doneFiles(); track f.name) {
-                <div class="result-item">
-                  <svg class="result-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                  <span class="result-name">{{ f.outputName }}</span>
-                  <span class="result-meta">{{ f.blockCount }} blocks &middot; {{ tracker.formatMs(f.timeMs ?? 0) }}</span>
-                  <button class="result-dl" (click)="downloadFile(f)" title="Download">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                      <polyline points="7 10 12 15 17 10"/>
-                      <line x1="12" y1="15" x2="12" y2="3"/>
-                    </svg>
-                  </button>
-                </div>
-              }
-            </div>
-          </div>
-        }
-
-        <!-- Failed files -->
-        @if (failedFiles().length > 0) {
-          <div class="results-section">
-            <div class="section-header">
-              <div class="section-label section-label-fail">Failed</div>
-              @if (canRetryFailed()) {
-                <button class="btn-retry" (click)="retryFailed()">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="23 4 23 10 17 10"/>
-                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                  </svg>
-                  Retry failed
-                </button>
-              }
-            </div>
-            <div class="scroll-list">
-              @for (f of failedFiles(); track f.name) {
-                <div class="failed-item">
-                  <svg class="failed-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
-                  </svg>
-                  <div class="failed-text">
-                    <span class="failed-name">{{ f.name }}</span>
-                    <span class="failed-msg">{{ f.error }}</span>
-                  </div>
-                </div>
-              }
-            </div>
-          </div>
-        }
-
-        <!-- Translate more -->
-        @if (isDone()) {
-          <button class="btn-again" (click)="reset()">Translate more</button>
-        }
       </div>
-    }
-
+    </section>
   </div>
 </main>
-
-<!-- Footer -->
-<footer class="footer">
-  <p>TransLora</p>
-</footer>
