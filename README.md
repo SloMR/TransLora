@@ -46,10 +46,15 @@ Open http://localhost:4200, drop in one or more subtitle files, pick source/targ
 
 ```bash
 cd cli
-pip install -r requirements.txt
 
-# Local llama-server (no key needed)
+# Option A — pip
+pip install -r requirements.txt
 python translora.py movie.srt -s English -t Arabic \
+  --api-url http://127.0.0.1:8080/v1/chat/completions
+
+# Option B — uv (faster, auto-manages the venv)
+uv sync
+uv run translora.py movie.srt -s English -t Arabic \
   --api-url http://127.0.0.1:8080/v1/chat/completions
 
 # Cloud provider, whole folder in parallel
@@ -85,17 +90,21 @@ Small and medium LLMs have known failure modes on long subtitle files: skipping 
 4. Validate the response: block count in = out, numbers and timestamps untouched.
 5. Retry failed batches up to `--max-retries` before flagging the file, then stitch the validated batches back in order.
 
-## Supported providers
+## Providers
 
-Any OpenAI-compatible `/v1/chat/completions` endpoint. Tested targets:
+TransLora works with **any OpenAI-compatible `/v1/chat/completions` endpoint** — there is no fixed provider list and no vendor lock-in. Pick the **Custom** option in the web app (or pass `--api-url` in the CLI) and point it at whatever URL you like: a hosted service, a self-hosted server, or a model running on your own machine.
 
-| Provider | Endpoint |
+For convenience, the table below lists a few known-working endpoints you can paste in directly:
+
+| Example | Endpoint |
 | --- | --- |
-| llama.cpp (local) | `http://127.0.0.1:8080/v1/chat/completions` |
+| Local OpenAI-compatible server | `http://127.0.0.1:8080/v1/chat/completions` |
 | OpenAI | `https://api.openai.com/v1/chat/completions` |
 | Groq | `https://api.groq.com/openai/v1/chat/completions` |
 | DeepSeek | `https://api.deepseek.com/v1/chat/completions` |
 | OpenRouter | `https://openrouter.ai/api/v1/chat/completions` |
+
+Anything else that speaks the OpenAI chat-completions protocol will work the same way — just provide the URL, an API key (or `none` for keyless local servers), and a model name.
 
 ## Repository layout
 
