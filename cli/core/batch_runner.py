@@ -14,6 +14,7 @@ from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 import httpx
 
+from .context_pass import FileContext
 from .srt_parser import SubtitleBlock, parse_lite, serialize_lite, validate_batch
 from .config import TranslationConfig
 from .prompt import SYSTEM_PROMPT
@@ -79,19 +80,19 @@ def is_retryable_http(code: int) -> bool:
 
 async def call_chat_api(
     client: httpx.AsyncClient,
-    batch_srt: str,
+    system_prompt: str,
+    user_message: str,
     cfg: TranslationConfig,
-    block_count: int,
+    max_tokens: int,
 ) -> str:
-    """POST one batch to the OpenAI-compatible chat endpoint, return raw text."""
+    """POST one chat request to the OpenAI-compatible endpoint, return raw text."""
     body: dict = {
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content":
-                f"Translate from {cfg.source_lang} to {cfg.target_lang}:\n\n{batch_srt}"},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
         ],
         "temperature": 0.1,
-        "max_tokens": max(block_count, 1) * 120,
+        "max_tokens": max(max_tokens, 1),
         "stream": False,
         "cache_prompt": True,
     }
@@ -109,21 +110,40 @@ async def call_chat_api(
     return resp.json()["choices"][0]["message"]["content"]
 
 
+def _build_user_message(
+    cfg: TranslationConfig,
+    batch_wire: str,
+    file_context: FileContext | None,
+    batch: list[SubtitleBlock],
+) -> str:
+    """Assemble the user message, prepending any relevant glossary slice."""
+    header = f"Translate from {cfg.source_lang} to {cfg.target_lang}:"
+    if file_context is not None:
+        ctx = file_context.render_for_batch(batch)
+        if ctx:
+            return f"Glossary for this scene:\n{ctx}\n\n{header}\n\n{batch_wire}"
+    return f"{header}\n\n{batch_wire}"
+
+
 async def translate_batch_with_retry(
     client: httpx.AsyncClient,
     batch_idx: int,
     batch: list[SubtitleBlock],
     cfg: TranslationConfig,
+    file_context: FileContext | None = None,
 ) -> list[SubtitleBlock]:
     """Translate one batch; retry on transient errors; raise on exhaustion."""
     batch_wire = serialize_lite(batch)
+    user_msg = _build_user_message(cfg, batch_wire, file_context, batch)
     label = f"Batch {batch_idx + 1}"
     first_block = batch[0].number
 
     for attempt in range(1, cfg.max_retries + 1):
         tag = f"attempt {attempt}/{cfg.max_retries}"
         try:
-            raw = await call_chat_api(client, batch_wire, cfg, len(batch))
+            raw = await call_chat_api(
+                client, SYSTEM_PROMPT, user_msg, cfg, max(len(batch), 1) * 120,
+            )
             output = parse_lite(strip_markdown_fences(raw))
             # Reattach timestamps from the original input positionally.
             if len(output) == len(batch):

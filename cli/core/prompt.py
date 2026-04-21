@@ -15,6 +15,7 @@ RULES (violating any = corrupt file):
 - Translate each block independently — never combine split sentences.
 - Translate faithfully: profanity, slurs, slang — match the original register.
 - Conversational tone, concise — must fit the original timing.
+- If a glossary is provided, use each character's listed gender when choosing pronouns and verb forms in the target language, and use the listed target-language name consistently.
 
 DO NOT TRANSLATE (copy verbatim):
 - HTML tags, music symbols, formatting tags (\\N, {\\an8})

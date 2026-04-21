@@ -18,6 +18,7 @@ from .srt_parser import SubtitleBlock, split_batches
 from .formats import parse_subtitle
 from .config import DEFAULT_MAX_RETRIES, TranslationConfig
 from .batch_runner import FileTranslationError, translate_batch_with_retry
+from .context_pass import FileContext, extract_file_context
 from .time_tracker import EtaEstimator, format_duration
 from .live_status import Colors, LiveLine, Ticker
 
@@ -67,7 +68,18 @@ async def translate_file_async(
             print(colors.dim(f"Concurrency: {cfg.concurrency}"))
 
     started_at = time.time()
-    translated_batches = await _run_batches(batches, cfg, colors, started_at)
+    async with httpx.AsyncClient() as scan_client:
+        if not cfg.quiet:
+            print(colors.dim("  Scanning for cast and context..."))
+        file_context = await extract_file_context(scan_client, doc.blocks, cfg)
+    if not cfg.quiet and not file_context.is_empty():
+        chars = len(file_context.characters)
+        terms = len(file_context.terms)
+        print(colors.dim(f"  Glossary: {chars} character(s), {terms} term(s)"))
+
+    translated_batches = await _run_batches(
+        batches, cfg, colors, started_at, file_context,
+    )
 
     # Stitch in order (they completed out-of-order but `_run_batches` returns
     # them indexed by their original position).
@@ -91,6 +103,7 @@ async def _run_batches(
     cfg: TranslationConfig,
     colors: Colors,
     started_at: float,
+    file_context: FileContext | None = None,
 ) -> list[list[SubtitleBlock]]:
     """Translate every batch with up to `cfg.concurrency` requests in flight.
 
@@ -138,7 +151,7 @@ async def _run_batches(
                     batch_start = time.time()
                     try:
                         results[idx] = await translate_batch_with_retry(
-                            client, idx, batches[idx], cfg
+                            client, idx, batches[idx], cfg, file_context,
                         )
                     except FileTranslationError as e:
                         failure = e
