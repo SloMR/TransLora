@@ -177,6 +177,7 @@
                           (ngModelChange)="apiUrl.set($event)"
                           placeholder="http://127.0.0.1:8080/v1/chat/completions"
                         />
+                        <p class="field-hint">Override the preset's endpoint — useful for gateways or self-hosted proxies.</p>
                       </div>
                     }
 
@@ -193,6 +194,8 @@
                         />
                         @if (apiKeyWarning()) {
                           <p class="field-warning">{{ apiKeyWarning() }}</p>
+                        } @else {
+                          <p class="field-hint">Optional — most local servers ignore this.</p>
                         }
                       </div>
                     }
@@ -208,6 +211,7 @@
                           (ngModelChange)="modelName.set($event)"
                           placeholder="Optional model name"
                         />
+                        <p class="field-hint">Leave blank if your server picks a model automatically.</p>
                       </div>
                     }
 
@@ -215,21 +219,25 @@
                       <div class="field field-num">
                         <label class="label" for="batch-size">Batch size</label>
                         <input id="batch-size" type="number" class="input" min="3" max="50" [ngModel]="batchSize()" (ngModelChange)="batchSize.set($event)" />
+                        <p class="field-hint">Blocks per request.</p>
                       </div>
 
                       <div class="field field-num">
                         <label class="label" for="concurrency">Concurrency</label>
                         <input id="concurrency" type="number" class="input" min="1" max="20" [ngModel]="concurrency()" (ngModelChange)="concurrency.set($event)" />
+                        <p class="field-hint">Parallel requests per file.</p>
                       </div>
 
                       <div class="field field-num">
                         <label class="label" for="parallel-files">Parallel files</label>
                         <input id="parallel-files" type="number" class="input" min="1" max="10" [ngModel]="parallelFiles()" (ngModelChange)="parallelFiles.set($event)" />
+                        <p class="field-hint">Files running at the same time.</p>
                       </div>
 
                       <div class="field field-num">
                         <label class="label" for="max-retries">Max retries</label>
                         <input id="max-retries" type="number" class="input" min="1" max="20" [ngModel]="maxRetries()" (ngModelChange)="maxRetries.set($event)" />
+                        <p class="field-hint">Attempts before failing.</p>
                       </div>
                     </div>
                   </div>
@@ -275,6 +283,11 @@
               </select>
             </div>
           </div>
+          <div class="lang-hints">
+            <p class="field-hint">Auto-detect works for almost every file. Pick one to force the source language.</p>
+            <span class="lang-hints-spacer" aria-hidden="true"></span>
+            <p class="field-hint">Subtitles will be translated into this language.</p>
+          </div>
 
           <div class="divider"></div>
 
@@ -307,6 +320,8 @@
               />
               @if (apiKeyWarning()) {
                 <p class="field-warning">{{ apiKeyWarning() }}</p>
+              } @else {
+                <p class="field-hint">Paste the key from your provider's dashboard. Stays in your browser — never uploaded.</p>
               }
             </div>
           }
@@ -322,6 +337,7 @@
                 (ngModelChange)="apiUrl.set($event)"
                 placeholder="http://127.0.0.1:8080/v1/chat/completions"
               />
+              <p class="field-hint">The chat-completions endpoint of your server or service.</p>
             </div>
           } @else {
             <div class="field">
@@ -342,6 +358,7 @@
                   }
                 </datalist>
               }
+              <p class="field-hint">Pick one of the provider's models or type a model ID your account supports.</p>
             </div>
           }
 
