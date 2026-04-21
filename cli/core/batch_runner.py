@@ -14,7 +14,7 @@ from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 import httpx
 
-from .srt_parser import SubtitleBlock, parse_srt, serialize_srt, validate_batch
+from .srt_parser import SubtitleBlock, parse_lite, serialize_lite, validate_batch
 from .config import TranslationConfig
 from .prompt import SYSTEM_PROMPT
 
@@ -116,15 +116,23 @@ async def translate_batch_with_retry(
     cfg: TranslationConfig,
 ) -> list[SubtitleBlock]:
     """Translate one batch; retry on transient errors; raise on exhaustion."""
-    batch_srt = serialize_srt(batch)
+    batch_wire = serialize_lite(batch)
     label = f"Batch {batch_idx + 1}"
     first_block = batch[0].number
 
     for attempt in range(1, cfg.max_retries + 1):
         tag = f"attempt {attempt}/{cfg.max_retries}"
         try:
-            raw = await call_chat_api(client, batch_srt, cfg, len(batch))
-            output = parse_srt(strip_markdown_fences(raw))
+            raw = await call_chat_api(client, batch_wire, cfg, len(batch))
+            output = parse_lite(strip_markdown_fences(raw))
+            # Reattach timestamps from the original input positionally.
+            if len(output) == len(batch):
+                output = [
+                    SubtitleBlock(number=batch[i].number,
+                                  timestamp=batch[i].timestamp,
+                                  text=output[i].text)
+                    for i in range(len(batch))
+                ]
             check = validate_batch(batch, output)
             if check.ok:
                 return output

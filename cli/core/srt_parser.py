@@ -68,6 +68,35 @@ def serialize_srt(blocks: list[SubtitleBlock]) -> str:
     return "\n\n".join(parts) + "\n"
 
 
+# Wire format sent to the LLM: number + text only. Timestamps are pure noise
+# for the model — it just echoes them back, and small models sometimes corrupt
+# a digit. We strip them before sending and reattach from the original input.
+def serialize_lite(blocks: list[SubtitleBlock]) -> str:
+    return "\n\n".join(f"{b.number}\n{b.text}" for b in blocks) + "\n"
+
+
+def parse_lite(content: str) -> list[SubtitleBlock]:
+    """Parse the wire-format response. Timestamps are left empty — callers
+    reattach them positionally from the original batch."""
+    content = content.replace("\r\n", "\n").replace("\r", "\n")
+    if content.startswith("\ufeff"):
+        content = content[1:]
+    raw_blocks = re.split(r"\n\n+", content.strip())
+
+    blocks: list[SubtitleBlock] = []
+    for raw in raw_blocks:
+        lines = raw.strip().split("\n")
+        if not lines:
+            continue
+        try:
+            number = int(lines[0].strip())
+        except ValueError:
+            continue
+        text = "\n".join(lines[1:]) if len(lines) > 1 else ""
+        blocks.append(SubtitleBlock(number=number, timestamp="", text=text))
+    return blocks
+
+
 def split_batches(blocks: list[SubtitleBlock], batch_size: int = 15) -> list[list[SubtitleBlock]]:
     """Split blocks into batches of the given size."""
     return [blocks[i : i + batch_size] for i in range(0, len(blocks), batch_size)]
