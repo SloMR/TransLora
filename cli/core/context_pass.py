@@ -1,14 +1,5 @@
-"""One-shot prepass: scan the whole file for cast, recurring terms, and tone
-notes before batched translation begins.
-
-The goal is to fix gendered-pronoun errors in languages like Arabic, where
-the model must pick masculine/feminine forms but English gives no signal.
-We send the full source text once, ask for a compact glossary, and inject
-the relevant slice into each batch's prompt.
-
-If the scan fails for any reason, callers get an empty FileContext and
-translation proceeds exactly as it did before.
-"""
+"""Prepass scan: extract cast, terms, and register from the whole file once
+so every batch shares the same glossary. Fails silently to an empty context."""
 
 from __future__ import annotations
 
@@ -51,9 +42,7 @@ Rules:
 - Leave a section empty (tags only) if nothing qualifies. Never omit a section.\
 """
 
-# Rough cap on source text sent to the scan. Tuned so small-context models
-# (4k-8k total) still have room for the system prompt, the output, and a
-# safety margin. ~4 chars ≈ 1 token on Latin text.
+# Sized so small-context models (4k-8k) still have room for prompt + output.
 _SCAN_CHAR_BUDGET = 12_000
 _SCAN_MAX_TOKENS = 1500
 
@@ -88,12 +77,8 @@ class FileContext:
         return not (self.register or self.characters or self.terms or self.notes)
 
     def render_for_batch(self, batch: list[SubtitleBlock]) -> str:
-        """Return only the glossary slice relevant to this batch.
-
-        Register and notes are always included (short, file-wide). Characters
-        and terms are included only if their source form appears in the batch.
-        Returns an empty string when there is nothing worth injecting.
-        """
+        """Return a glossary slice scoped to names/terms present in this batch.
+        Register and notes are file-wide and always included if set."""
         text = "\n".join(b.text for b in batch)
         chars = [h for h in self.characters if _contains_word(text, h.source)]
         terms = [h for h in self.terms if _contains_word(text, h.source)]
@@ -122,18 +107,12 @@ def _contains_word(text: str, word: str) -> bool:
 
 
 def serialize_for_scan(blocks: list[SubtitleBlock]) -> str:
-    """Serialize subtitle text for the scan pass — no numbers, no timestamps.
-
-    For large files we can't fit every block in the scan call, so we stride-
-    sample evenly across the whole file. Sampling preserves each character's
-    chance of appearing at least once in the glossary, regardless of where
-    they're first introduced.
-    """
+    """Text for the scan pass. Stride-samples large files so characters
+    introduced late still have a chance to land in the glossary."""
     total_chars = sum(len(b.text) + 1 for b in blocks)
     if total_chars <= _SCAN_CHAR_BUDGET or len(blocks) <= 1:
         return "\n".join(b.text for b in blocks)
 
-    # Estimate how many blocks fit in the budget, then sample evenly.
     take_n = max(1, int(len(blocks) * _SCAN_CHAR_BUDGET / total_chars))
     step = len(blocks) / take_n
     sampled = [blocks[int(i * step)] for i in range(take_n)]
@@ -147,7 +126,6 @@ def parse_context_response(text: str) -> FileContext:
         for m in _SECTION_RE.finditer(text or "")
     }
 
-    # Register is free-form but must be a single line; collapse any whitespace.
     register = " ".join(sections.get("register", "").split()).strip().lstrip("-*• ").strip()
 
     characters: list[CharacterHint] = []
@@ -219,9 +197,7 @@ async def extract_file_context(
 
     context = parse_context_response(strip_markdown_fences(raw))
     if context.is_empty():
-        # Diagnostic: show a short snippet of what the model actually returned
-        # so it's obvious whether it ignored the tagged format, truncated, or
-        # refused. Truncated hard to keep noise down.
+        # Diagnostic snippet: helps tell whether the model ignored tags, truncated, or refused.
         snippet = (raw or "").strip().replace("\n", " ")[:240]
         cfg.warn(f"    Context scan returned empty glossary. Raw start: {snippet!r}")
     return context

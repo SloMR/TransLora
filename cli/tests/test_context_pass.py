@@ -16,36 +16,36 @@ def _block(n: int, text: str) -> SubtitleBlock:
 def test_parse_well_formed_response():
     raw = """
 <register>
-Modern Standard Arabic, neutral
+Target language, neutral register
 </register>
 <characters>
-Amy => إيمي | female
-Jake => جيك | male
-Stranger => غريب | unknown
+Alice => TargetAlice | female
+Bob => TargetBob | male
+Stranger => TargetStranger | unknown
 </characters>
 <terms>
-precinct => قسم الشرطة
+headquarters => TargetHQ
 </terms>
 <notes>
-- Modern police procedural
+- Workplace drama
 - Casual register
 </notes>
 """
     ctx = parse_context_response(raw)
-    assert ctx.register == "Modern Standard Arabic, neutral"
+    assert ctx.register == "Target language, neutral register"
     assert ctx.characters == [
-        CharacterHint("Amy", "إيمي", "female"),
-        CharacterHint("Jake", "جيك", "male"),
-        CharacterHint("Stranger", "غريب", "unknown"),
+        CharacterHint("Alice", "TargetAlice", "female"),
+        CharacterHint("Bob", "TargetBob", "male"),
+        CharacterHint("Stranger", "TargetStranger", "unknown"),
     ]
-    assert ctx.terms == [TermHint("precinct", "قسم الشرطة")]
-    assert ctx.notes == ["Modern police procedural", "Casual register"]
+    assert ctx.terms == [TermHint("headquarters", "TargetHQ")]
+    assert ctx.notes == ["Workplace drama", "Casual register"]
 
 
 def test_parse_register_collapses_whitespace_and_bullet():
     raw = """
 <register>
-  - Brazilian Portuguese,
+  - Target language,
     casual
 </register>
 <characters>
@@ -56,36 +56,36 @@ def test_parse_register_collapses_whitespace_and_bullet():
 </notes>
 """
     ctx = parse_context_response(raw)
-    assert ctx.register == "Brazilian Portuguese, casual"
+    assert ctx.register == "Target language, casual"
 
 
 def test_render_includes_register_line_even_when_no_matches():
     ctx = FileContext(
-        register="Modern Standard Arabic, neutral",
-        characters=[CharacterHint("Amy", "إيمي", "female")],
+        register="Target language, neutral",
+        characters=[CharacterHint("Alice", "TargetAlice", "female")],
         terms=[],
         notes=[],
     )
     batch = [_block(1, "Nobody named here.")]
     rendered = ctx.render_for_batch(batch)
-    assert "Target register: Modern Standard Arabic, neutral" in rendered
-    assert "Amy" not in rendered
+    assert "Target register: Target language, neutral" in rendered
+    assert "Alice" not in rendered
 
 
 def test_is_empty_considers_register():
     assert FileContext().is_empty()
-    assert not FileContext(register="MSA").is_empty()
+    assert not FileContext(register="Target language").is_empty()
 
 
 def test_parse_tolerates_missing_sections_and_bullets():
     raw = """
 <characters>
-- Amy => إيمي | female
-* Jake => جيك | MALE
+- Alice => TargetAlice | female
+* Bob => TargetBob | MALE
 </characters>
 """
     ctx = parse_context_response(raw)
-    assert [h.source for h in ctx.characters] == ["Amy", "Jake"]
+    assert [h.source for h in ctx.characters] == ["Alice", "Bob"]
     assert ctx.characters[1].gender == "male"
     assert ctx.terms == []
     assert ctx.notes == []
@@ -99,23 +99,23 @@ def test_parse_garbage_returns_empty():
 def test_render_for_batch_only_includes_matching_characters():
     ctx = FileContext(
         characters=[
-            CharacterHint("Amy", "إيمي", "female"),
-            CharacterHint("Jake", "جيك", "male"),
+            CharacterHint("Alice", "TargetAlice", "female"),
+            CharacterHint("Bob", "TargetBob", "male"),
         ],
-        terms=[TermHint("precinct", "قسم الشرطة")],
-        notes=["Police procedural"],
+        terms=[TermHint("headquarters", "TargetHQ")],
+        notes=["Workplace drama"],
     )
-    batch = [_block(1, "Amy, come here."), _block(2, "I'm tired.")]
+    batch = [_block(1, "Alice, come here."), _block(2, "I'm tired.")]
     rendered = ctx.render_for_batch(batch)
-    assert "Amy" in rendered
-    assert "Jake" not in rendered
-    assert "precinct" not in rendered
-    assert "Police procedural" in rendered
+    assert "Alice" in rendered
+    assert "Bob" not in rendered
+    assert "headquarters" not in rendered
+    assert "Workplace drama" in rendered
 
 
 def test_render_for_batch_empty_when_nothing_matches_and_no_notes():
     ctx = FileContext(
-        characters=[CharacterHint("Amy", "إيمي", "female")],
+        characters=[CharacterHint("Alice", "TargetAlice", "female")],
         terms=[],
         notes=[],
     )
@@ -125,13 +125,13 @@ def test_render_for_batch_empty_when_nothing_matches_and_no_notes():
 
 def test_render_word_boundary_does_not_match_substrings():
     ctx = FileContext(
-        characters=[CharacterHint("Amy", "إيمي", "female")],
+        characters=[CharacterHint("Alice", "TargetAlice", "female")],
         terms=[],
         notes=[],
     )
-    # "Amy" inside "Amyloid" should not match.
-    batch = [_block(1, "Amyloid plaques.")]
-    assert "Amy" not in ctx.render_for_batch(batch)
+    # "Alice" as a substring of a longer word must not trigger a match.
+    batch = [_block(1, "Alicebot is online.")]
+    assert "Alice" not in ctx.render_for_batch(batch)
 
 
 def test_serialize_for_scan_returns_all_text_when_under_budget():

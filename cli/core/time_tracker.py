@@ -4,7 +4,6 @@ import time
 
 
 def format_duration(seconds: float) -> str:
-    """'42s', '3m 20s', '1h 5m'."""
     total = int(round(seconds))
     if total < 60:
         return f"{total}s"
@@ -14,12 +13,8 @@ def format_duration(seconds: float) -> str:
 
 
 class EtaEstimator:
-    """Estimates remaining time based on how long completed batches took.
-
-    We ignore the first `concurrency` completions because they all finish
-    roughly at once (they started together) — using them would wildly
-    underestimate the true rate.
-    """
+    """ETA based on completed batches. Skips the first `concurrency` completions
+    since they all finish near-simultaneously and would skew the rate."""
 
     def __init__(self, total: int, concurrency: int, start: float) -> None:
         self.total = total

@@ -1,10 +1,4 @@
-"""Per-batch HTTP call, response sanitizing, and retry loop.
-
-This is the "send one batch, get it back validated" layer. It knows how
-to talk to an OpenAI-compatible chat endpoint and how to recover from
-transient failures. Everything above this layer (translator.py) just
-asks for batches and stitches them together.
-"""
+"""Per-batch HTTP call, response sanitizing, and retry loop."""
 
 from __future__ import annotations
 
@@ -26,16 +20,11 @@ _CRED_QUERY_PARAMS = {"key", "api_key", "apikey", "access_token"}
 
 
 class FileTranslationError(Exception):
-    """A batch used up all its retries — the whole file is considered failed."""
+    """A batch exhausted its retries; the whole file is considered failed."""
 
-
-# ---------------------------------------------------------------------------
-# Input sanitization — users paste URLs/keys in all kinds of shapes.
-# ---------------------------------------------------------------------------
 
 def sanitize_api_url(url: str) -> str:
-    """Drop credential query params like `?key=...` so we don't authenticate
-    twice when the user pastes a pre-keyed URL."""
+    """Drop credential query params so we don't authenticate twice."""
     url = (url or "").strip()
     if not url:
         return url
@@ -50,7 +39,6 @@ def sanitize_api_url(url: str) -> str:
 
 
 def sanitize_api_key(key: str) -> str:
-    """Strip whitespace, surrounding quotes, and any `Bearer ` prefix."""
     k = (key or "").strip()
     if (k.startswith('"') and k.endswith('"')) or \
        (k.startswith("'") and k.endswith("'")):
@@ -61,7 +49,6 @@ def sanitize_api_key(key: str) -> str:
 
 
 def strip_markdown_fences(text: str) -> str:
-    """LLMs sometimes wrap output in ```...``` despite being told not to."""
     text = text.strip()
     if text.startswith("```"):
         text = re.sub(r"^```[a-zA-Z]*\n?", "", text)
@@ -70,13 +57,8 @@ def strip_markdown_fences(text: str) -> str:
 
 
 def is_retryable_http(code: int) -> bool:
-    """Retry on timeout / rate-limit / server errors. Everything else is fatal."""
     return code in (408, 429) or code >= 500
 
-
-# ---------------------------------------------------------------------------
-# HTTP call + retry
-# ---------------------------------------------------------------------------
 
 async def call_chat_api(
     client: httpx.AsyncClient,
@@ -85,7 +67,6 @@ async def call_chat_api(
     cfg: TranslationConfig,
     max_tokens: int,
 ) -> str:
-    """POST one chat request to the OpenAI-compatible endpoint, return raw text."""
     body: dict = {
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -116,7 +97,6 @@ def _build_user_message(
     file_context: FileContext | None,
     batch: list[SubtitleBlock],
 ) -> str:
-    """Assemble the user message, prepending any relevant glossary slice."""
     if cfg.source_lang:
         header = f"Translate from {cfg.source_lang} to {cfg.target_lang}:"
     else:
@@ -139,13 +119,11 @@ async def translate_batch_with_retry(
     file_context: FileContext | None = None,
     _split_path: str = "",
 ) -> list[SubtitleBlock]:
-    """Translate one batch; on repeated validation failure split it in half.
+    """Translate one batch; on repeated validation failure, halve and recurse.
 
     Persistent count mismatches usually mean the model is deterministically
-    merging two adjacent similar-looking blocks (e.g., repeated reactions
-    like "Oh." / "Oh!"). Splitting gives the model fewer similar blocks to
-    confuse and almost always resolves the merge. We keep halving until we
-    reach single-block batches, which can't have count mismatches.
+    merging two adjacent similar-looking blocks. Halving keeps terminating
+    because at N=1 a count mismatch is impossible.
     """
     batch_wire = serialize_lite(batch)
     user_msg = _build_user_message(cfg, batch_wire, file_context, batch)
@@ -163,7 +141,6 @@ async def translate_batch_with_retry(
                 client, SYSTEM_PROMPT, user_msg, cfg, max(len(batch), 1) * 120,
             )
             output = parse_lite(strip_markdown_fences(raw))
-            # Reattach timestamps from the original input positionally.
             if len(output) == len(batch):
                 output = [
                     SubtitleBlock(number=batch[i].number,
@@ -192,15 +169,12 @@ async def translate_batch_with_retry(
                 await asyncio.sleep(delay)
                 continue
 
-        except Exception as e:  # network error, JSON decode error, etc.
+        except Exception as e:
             cfg.warn(f"    {label} request failed ({tag}): {e}")
 
-        # Small back-off before the next attempt (1s, 2s, 3s cap).
         if attempt < attempts:
             await asyncio.sleep(min(attempt, 3))
 
-    # All attempts exhausted. If we hit validation errors and can still split,
-    # cut the batch in half and retry each half independently. Otherwise fail.
     if hit_validation_failure and can_split:
         mid = len(batch) // 2
         left, right = batch[:mid], batch[mid:]
@@ -209,8 +183,7 @@ async def translate_batch_with_retry(
         )
         left_path = (_split_path + "L") if _split_path else "L"
         right_path = (_split_path + "R") if _split_path else "R"
-        # Sequential: parallel halves would oversubscribe the outer semaphore's
-        # per-batch slot and starve other batches.
+        # Sequential: parallel halves would oversubscribe the outer semaphore.
         left_result = await translate_batch_with_retry(
             client, batch_idx, left, cfg, file_context, left_path,
         )

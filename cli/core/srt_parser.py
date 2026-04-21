@@ -12,72 +12,49 @@ TIMESTAMP_RE = re.compile(
 
 @dataclass
 class SubtitleBlock:
-    """A single .srt subtitle block."""
-
     number: int
     timestamp: str
-    text: str  # may contain multiple lines separated by \n
+    text: str
 
 
 def parse_srt(content: str) -> list[SubtitleBlock]:
-    """Parse raw .srt content into a list of SubtitleBlock objects.
-
-    Handles various line-ending styles and tolerates minor formatting issues.
-    """
-    # Normalize line endings
     content = content.replace("\r\n", "\n").replace("\r", "\n")
-
-    # Strip BOM if present
     if content.startswith("\ufeff"):
         content = content[1:]
-
-    # Split on double newlines (one or more blank lines between blocks)
     raw_blocks = re.split(r"\n\n+", content.strip())
 
     blocks: list[SubtitleBlock] = []
-
     for raw in raw_blocks:
         lines = raw.strip().split("\n")
         if len(lines) < 2:
             continue
-
-        # First line: block number
         try:
             number = int(lines[0].strip())
         except ValueError:
             continue
-
-        # Second line: timestamp
         timestamp = lines[1].strip()
         if not TIMESTAMP_RE.match(timestamp):
             continue
-
-        # Remaining lines: subtitle text
         text = "\n".join(lines[2:]) if len(lines) > 2 else ""
-
         blocks.append(SubtitleBlock(number=number, timestamp=timestamp, text=text))
 
     return blocks
 
 
 def serialize_srt(blocks: list[SubtitleBlock]) -> str:
-    """Serialize SubtitleBlock list back into .srt file content."""
     parts: list[str] = []
     for block in blocks:
         parts.append(f"{block.number}\n{block.timestamp}\n{block.text}")
     return "\n\n".join(parts) + "\n"
 
 
-# Wire format sent to the LLM: number + text only. Timestamps are pure noise
-# for the model — it just echoes them back, and small models sometimes corrupt
-# a digit. We strip them before sending and reattach from the original input.
+# Wire format: number + text only. Timestamps are stripped before sending
+# because small models sometimes corrupt them; callers reattach positionally.
 def serialize_lite(blocks: list[SubtitleBlock]) -> str:
     return "\n\n".join(f"{b.number}\n{b.text}" for b in blocks) + "\n"
 
 
 def parse_lite(content: str) -> list[SubtitleBlock]:
-    """Parse the wire-format response. Timestamps are left empty — callers
-    reattach them positionally from the original batch."""
     content = content.replace("\r\n", "\n").replace("\r", "\n")
     if content.startswith("\ufeff"):
         content = content[1:]
@@ -98,14 +75,11 @@ def parse_lite(content: str) -> list[SubtitleBlock]:
 
 
 def split_batches(blocks: list[SubtitleBlock], batch_size: int = 15) -> list[list[SubtitleBlock]]:
-    """Split blocks into batches of the given size."""
     return [blocks[i : i + batch_size] for i in range(0, len(blocks), batch_size)]
 
 
 @dataclass
 class ValidationResult:
-    """Result of batch validation."""
-
     ok: bool
     error: str = ""
 
@@ -114,15 +88,12 @@ def validate_batch(
     input_blocks: list[SubtitleBlock],
     output_blocks: list[SubtitleBlock],
 ) -> ValidationResult:
-    """Validate that the translated batch matches the input structure."""
-    # 1. Block count
     if len(input_blocks) != len(output_blocks):
         return ValidationResult(
             ok=False,
             error=f"Block count mismatch: expected {len(input_blocks)}, got {len(output_blocks)}",
         )
 
-    # 2. Block number sequence
     for i, (inp, out) in enumerate(zip(input_blocks, output_blocks)):
         if inp.number != out.number:
             return ValidationResult(
@@ -130,7 +101,6 @@ def validate_batch(
                 error=f"Block number mismatch at index {i}: expected {inp.number}, got {out.number}",
             )
 
-    # 3. Timestamps unchanged
     for i, (inp, out) in enumerate(zip(input_blocks, output_blocks)):
         if inp.timestamp != out.timestamp:
             return ValidationResult(
@@ -138,9 +108,8 @@ def validate_batch(
                 error=f"Timestamp modified at block {inp.number}: expected '{inp.timestamp}', got '{out.timestamp}'",
             )
 
-    # 4. Non-empty input must produce non-empty output. Catches the silent
-    # data-loss case where the model shifts blocks and leaves a tail block blank
-    # while preserving count/numbers/timestamps.
+    # Catches silent data-loss where the model shifts blocks and leaves a
+    # tail block blank while preserving count/numbers/timestamps.
     for inp, out in zip(input_blocks, output_blocks):
         if inp.text.strip() and not out.text.strip():
             return ValidationResult(

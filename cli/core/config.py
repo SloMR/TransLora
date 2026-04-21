@@ -18,14 +18,9 @@ def _stderr_warn(msg: str) -> None:
 
 @dataclass
 class TranslationConfig:
-    """Everything a translation run needs beyond the file paths.
-
-    Bundled so we aren't threading 8+ arguments through every helper.
-    `warn` lets callers intercept retry/validation messages so they can be
-    routed around a live progress line instead of clobbering it. Default is
-    silent — pass --verbose on the CLI to surface retry/validation chatter.
-    """
-    source_lang: str  # "" means auto-detect from the text
+    """Per-run config. `warn` is the retry/validation sink — silent by default,
+    rebindable by callers so it can route around a live progress line."""
+    source_lang: str  # "" means auto-detect
     target_lang: str
     api_url: str
     api_key: str

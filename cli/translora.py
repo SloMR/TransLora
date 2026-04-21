@@ -39,13 +39,8 @@ path for local servers vary by tool — check your server's documentation.
 """
 
 
-# Module-level palette — colors auto-disable on non-TTY / NO_COLOR.
 C = Colors()
 
-
-# ---------------------------------------------------------------------------
-# Argument parsing
-# ---------------------------------------------------------------------------
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -84,13 +79,8 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
-# ---------------------------------------------------------------------------
-# File discovery & output naming
-# ---------------------------------------------------------------------------
-
-
 def _collect_files(paths: list[Path]) -> list[Path]:
-    """Expand user-supplied paths into a flat list of subtitle files."""
+    """Expand paths into a flat list of subtitle files."""
     files: list[Path] = []
     for p in paths:
         if p.is_dir():
@@ -119,7 +109,7 @@ class Job:
 
 
 def _plan_jobs(args, srt_files: list[Path]) -> tuple[list[Job], int]:
-    """Decide which files still need translating. Returns (jobs, skipped)."""
+    """Return (jobs to run, skipped count) based on existing outputs."""
     jobs: list[Job] = []
     skipped = 0
     total = len(srt_files)
@@ -143,16 +133,11 @@ def _plan_jobs(args, srt_files: list[Path]) -> tuple[list[Job], int]:
     return jobs, skipped
 
 
-# ---------------------------------------------------------------------------
-# Parallel execution
-# ---------------------------------------------------------------------------
-
 async def _translate_all(args, jobs: list[Job]) -> tuple[int, list[tuple[Path, str]]]:
-    """Run all translation jobs with the configured parallelism."""
     parallel = max(1, args.parallel_files)
     total_jobs = len(jobs)
-    # With 2+ jobs in flight, per-file live progress can't share the terminal.
-    # Switch translator into quiet mode and drive an overall ticker instead.
+    # Multi-file mode: per-file live progress can't share the terminal, so
+    # suppress per-file output and drive a run-wide ticker instead.
     multi_file = total_jobs > 1
     cfg = TranslationConfig(
         source_lang=args.source,
@@ -174,13 +159,11 @@ async def _translate_all(args, jobs: list[Job]) -> tuple[int, list[tuple[Path, s
     completed = 0
     failed: list[tuple[Path, str]] = []
 
-    # State used by both the ticker thread and the coroutines. Integer/list
-    # reads are atomic under the GIL — stale ticker data is just cosmetic.
+    # Shared with the ticker thread — atomic reads under the GIL, stale data
+    # is cosmetic.
     live = LiveLine() if multi_file else None
     use_ticker = live is not None and live.enabled
 
-    # Route any batch-level warnings above the ticker line — only when the
-    # user asked for verbose output; otherwise warn stays silent.
     if live is not None and cfg.verbose:
         cfg.warn = lambda msg: live.println(C.yellow(msg), file=sys.stderr)
 
@@ -216,8 +199,8 @@ async def _translate_all(args, jobs: list[Job]) -> tuple[int, list[tuple[Path, s
                 elapsed = time.time() - start
                 file_times.append(elapsed)
                 completed += 1
-                # In single-file mode the translator already printed its
-                # completion banner — avoid duplicating it.
+                # Single-file mode already prints a completion banner from
+                # the translator itself — don't duplicate it here.
                 if live is not None:
                     done = completed + len(failed)
                     line = (
@@ -253,10 +236,6 @@ async def _translate_all(args, jobs: list[Job]) -> tuple[int, list[tuple[Path, s
 
     return completed, failed
 
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 def _print_header(jobs_count: int, total_files: int, parallel: int,
                   concurrency: int, skipped: int) -> None:
