@@ -7,7 +7,7 @@ export interface LanguageOption {
 
 /**
  * Subtitle translation languages, alphabetical by English name.
- * Codes follow ISO 639-1. Defaults are "English" (source) and "Arabic" (target).
+ * Codes follow ISO 639-1. Default source is "Auto-detect" (empty), default target is "Arabic".
  */
 export const LANGUAGES: LanguageOption[] = [
   { code: 'af', name: 'Afrikaans' },

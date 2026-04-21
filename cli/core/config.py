@@ -20,7 +20,7 @@ class TranslationConfig:
     `warn` lets callers intercept retry/validation messages so they can be
     routed around a live progress line instead of clobbering it.
     """
-    source_lang: str
+    source_lang: str  # "" means auto-detect from the text
     target_lang: str
     api_url: str
     api_key: str

@@ -199,8 +199,9 @@ async def extract_file_context(
     """Run one scan call and return a FileContext. Empty on any failure."""
     from .batch_runner import call_chat_api, strip_markdown_fences
 
+    source_line = f"Source language: {cfg.source_lang}\n" if cfg.source_lang else ""
     user_message = (
-        f"Source language: {cfg.source_lang}\n"
+        f"{source_line}"
         f"Target language: {cfg.target_lang}\n\n"
         f"{serialize_for_scan(blocks)}"
     )

@@ -57,8 +57,9 @@ def _build_parser() -> argparse.ArgumentParser:
                    version=f"TransLora CLI {__version__}")
     p.add_argument("files", nargs="+", type=Path,
                    help="subtitle files or directories (.srt, .vtt, .ass, ...)")
-    p.add_argument("--source", "-s", required=True,
-                   help="Source language (e.g. English, French, Japanese)")
+    p.add_argument("--source", "-s", default="",
+                   help="Source language (e.g. English, French). "
+                        "Omit to auto-detect — useful for mixed-language batches.")
     p.add_argument("--target", "-t", required=True,
                    help="Target language (e.g. Arabic, Spanish, Korean)")
     p.add_argument("--api-url", required=True, help="LLM API endpoint URL")

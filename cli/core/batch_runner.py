@@ -117,7 +117,10 @@ def _build_user_message(
     batch: list[SubtitleBlock],
 ) -> str:
     """Assemble the user message, prepending any relevant glossary slice."""
-    header = f"Translate from {cfg.source_lang} to {cfg.target_lang}:"
+    if cfg.source_lang:
+        header = f"Translate from {cfg.source_lang} to {cfg.target_lang}:"
+    else:
+        header = f"Translate to {cfg.target_lang}:"
     if file_context is not None:
         ctx = file_context.render_for_batch(batch)
         if ctx:

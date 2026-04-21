@@ -250,6 +250,7 @@
             <div class="lang-col">
               <label class="label" for="source-lang">From</label>
               <select id="source-lang" class="select" [ngModel]="sourceLang()" (ngModelChange)="sourceLang.set($event)">
+                <option value="">Auto-detect</option>
                 @for (lang of languages; track lang.code) {
                   <option [value]="lang.name">{{ lang.name }}</option>
                 }

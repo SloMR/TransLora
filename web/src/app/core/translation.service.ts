@@ -119,8 +119,9 @@ export class TranslationService {
     provider: ProviderConfig,
     cancelSignal?: AbortSignal,
   ): Promise<FileContext> {
+    const sourceLine = sourceLang ? `Source language: ${sourceLang}\n` : '';
     const userMessage =
-      `Source language: ${sourceLang}\n` +
+      sourceLine +
       `Target language: ${targetLang}\n\n` +
       serializeForScan(blocks);
 

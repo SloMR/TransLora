@@ -29,7 +29,9 @@ export function buildUserMessage(
   srtContent: string,
   glossary?: string,
 ): string {
-  const header = `Translate from ${sourceLang} to ${targetLang}:`;
+  const header = sourceLang
+    ? `Translate from ${sourceLang} to ${targetLang}:`
+    : `Translate to ${targetLang}:`;
   if (glossary && glossary.trim()) {
     return `Glossary for this scene:\n${glossary}\n\n${header}\n\n${srtContent}`;
   }

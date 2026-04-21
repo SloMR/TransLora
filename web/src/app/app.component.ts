@@ -23,7 +23,7 @@ import { TimeTracker } from './core/time-tracker';
 
 // Defaults — kept in one place so "Reset defaults" is trivial
 const DEFAULTS = {
-  sourceLang: 'English',
+  sourceLang: '',
   targetLang: 'Arabic',
   batchSize: DEFAULT_BATCH_SIZE,
   concurrency: DEFAULT_CONCURRENCY,
@@ -348,6 +348,8 @@ export class AppComponent implements OnDestroy {
 
   swapLanguages() {
     const source = this.sourceLang();
+    // Nothing sensible to swap when source is "auto-detect" — target stays as-is.
+    if (!source) return;
     this.sourceLang.set(this.targetLang());
     this.targetLang.set(source);
   }

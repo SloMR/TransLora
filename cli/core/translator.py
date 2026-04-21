@@ -59,10 +59,11 @@ async def translate_file_async(
     colors = Colors()
 
     if not cfg.quiet:
+        src_label = cfg.source_lang or "auto"
         print(
             f"{colors.bold('Translating')} {colors.cyan(str(len(doc.blocks)))} blocks "
             f"in {colors.cyan(str(total))} batches "
-            f"{colors.dim(f'({cfg.source_lang} → {cfg.target_lang}, {doc.format})')}"
+            f"{colors.dim(f'({src_label} → {cfg.target_lang}, {doc.format})')}"
         )
         if cfg.concurrency > 1:
             print(colors.dim(f"Concurrency: {cfg.concurrency}"))
