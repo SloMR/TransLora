@@ -10,6 +10,13 @@ import {
 } from './srt-parser';
 import { SubtitleDocument } from './subtitle-formats/types';
 import { SYSTEM_PROMPT, buildUserMessage } from './translation-prompt';
+import {
+  CONTEXT_SYSTEM_PROMPT,
+  FileContext,
+  SCAN_MAX_TOKENS,
+  parseContextResponse,
+  serializeForScan,
+} from './context-pass';
 
 export interface ProviderConfig {
   apiUrl: string;
@@ -34,6 +41,8 @@ export const DEFAULT_MAX_RETRIES = 5;
 export const DEFAULT_BATCH_SIZE = 5;
 export const DEFAULT_CONCURRENCY = 5;
 export const DEFAULT_PARALLEL_FILES = 1;
+
+const ATTEMPTS_BEFORE_SPLIT = 2;
 
 type ChatResponse = { choices: { message: { content: string } }[] };
 
@@ -62,6 +71,10 @@ export class TranslationService {
     }
     throwIfCancelled(cancelSignal);
 
+    const fileContext = await this.extractFileContext(
+      doc.blocks, sourceLang, targetLang, provider, cancelSignal,
+    );
+
     const batches = splitBatches(doc.blocks, batchSize);
     const results: SubtitleBlock[][] = new Array(batches.length);
 
@@ -79,7 +92,7 @@ export class TranslationService {
         const i = nextIdx++;
         if (i >= batches.length) return;
         results[i] = await this.translateBatch(
-          batches[i], sourceLang, targetLang, provider, maxRetries, cancelSignal,
+          batches[i], sourceLang, targetLang, provider, maxRetries, fileContext, cancelSignal,
         );
         completed++;
         emit();
@@ -96,7 +109,35 @@ export class TranslationService {
   }
 
   // ---------------------------------------------------------------------
-  // Per-batch translation with retry
+  // Prepass: one scan call for cast, recurring terms, and tone notes.
+  // ---------------------------------------------------------------------
+
+  private async extractFileContext(
+    blocks: SubtitleBlock[],
+    sourceLang: string,
+    targetLang: string,
+    provider: ProviderConfig,
+    cancelSignal?: AbortSignal,
+  ): Promise<FileContext> {
+    const userMessage =
+      `Source language: ${sourceLang}\n` +
+      `Target language: ${targetLang}\n\n` +
+      serializeForScan(blocks);
+
+    try {
+      const raw = await this.callChat(
+        CONTEXT_SYSTEM_PROMPT, userMessage, provider, SCAN_MAX_TOKENS, cancelSignal,
+      );
+      return parseContextResponse(stripMarkdownFences(raw));
+    } catch (err) {
+      if (err instanceof TranslationCancelledError) throw err;
+      console.warn('Context scan failed, proceeding without:', err);
+      return new FileContext();
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Per-batch translation with retry + recursive split on validation failure
   // ---------------------------------------------------------------------
 
   private async translateBatch(
@@ -105,23 +146,32 @@ export class TranslationService {
     targetLang: string,
     provider: ProviderConfig,
     maxRetries: number,
+    fileContext: FileContext,
     cancelSignal?: AbortSignal,
   ): Promise<SubtitleBlock[]> {
     throwIfCancelled(cancelSignal);
-    const batchWire = serializeLite(inputBlocks);
-    const body = this.buildRequestBody(
-      sourceLang, targetLang, batchWire, provider.model, inputBlocks.length,
-    );
-    const url = sanitizeApiUrl(provider.apiUrl);
-    const headers = buildHeaders(sanitizeApiKey(provider.apiKey));
+
+    const canSplit = inputBlocks.length > 1;
+    // Give splittable batches fewer retries before halving — persistent count
+    // mismatches almost always resolve when we hand the model fewer similar
+    // blocks. Single-block batches can't be split, so let them exhaust.
+    const attempts = canSplit ? ATTEMPTS_BEFORE_SPLIT : maxRetries;
     const firstBlockNum = inputBlocks[0].number;
+
+    const batchWire = serializeLite(inputBlocks);
+    const glossary = fileContext.renderForBatch(inputBlocks);
+    const userMessage = buildUserMessage(sourceLang, targetLang, batchWire, glossary);
+    let hitValidationFailure = false;
     let lastError = '';
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    for (let attempt = 1; attempt <= attempts; attempt++) {
       throwIfCancelled(cancelSignal);
       try {
-        const resp = await this.postChat(url, body, headers, cancelSignal);
-        let output = parseLite(stripMarkdownFences(resp.choices[0].message.content));
+        const raw = await this.callChat(
+          SYSTEM_PROMPT, userMessage, provider,
+          Math.max(inputBlocks.length, 1) * 120, cancelSignal,
+        );
+        let output = parseLite(stripMarkdownFences(raw));
         // Reattach timestamps from the original input positionally.
         if (output.length === inputBlocks.length) {
           output = output.map((b, i) => ({
@@ -133,8 +183,9 @@ export class TranslationService {
         const check = validateBatch(inputBlocks, output);
         if (check.ok) return output;
 
+        hitValidationFailure = true;
         lastError = `validation: ${check.error}`;
-        console.warn(`Batch validation failed (${attempt}/${maxRetries}):`, check.error);
+        console.warn(`Batch validation failed (${attempt}/${attempts}):`, check.error);
 
       } catch (err: unknown) {
         if (err instanceof TranslationCancelledError) {
@@ -145,7 +196,7 @@ export class TranslationService {
         lastError = this.extractServerMessage(err) || (err as Error)?.message || String(err);
 
         console.warn(
-          `Batch request failed (${attempt}/${maxRetries}) [HTTP ${status}]:`,
+          `Batch request failed (${attempt}/${attempts}) [HTTP ${status}]:`,
           lastError,
         );
 
@@ -155,7 +206,7 @@ export class TranslationService {
         }
 
         // Rate-limited: exponential backoff before retrying.
-        if (status === 429 && attempt < maxRetries) {
+        if (status === 429 && attempt < attempts) {
           const delay = 2 ** attempt * 1000;
           console.warn(`Rate limited — waiting ${delay / 1000}s...`);
           await sleep(delay, cancelSignal);
@@ -164,14 +215,64 @@ export class TranslationService {
       }
 
       // Small linear backoff between other retries (1s, 2s, 3s cap).
-      if (attempt < maxRetries) {
+      if (attempt < attempts) {
         await sleep(Math.min(attempt, 3) * 1000, cancelSignal);
       }
     }
 
+    // Attempts exhausted. If we hit validation errors and can still split,
+    // halve and retry each half independently. Recurse until single-block
+    // batches, which can't have count mismatches.
+    if (hitValidationFailure && canSplit) {
+      const mid = Math.floor(inputBlocks.length / 2);
+      const left = inputBlocks.slice(0, mid);
+      const right = inputBlocks.slice(mid);
+      console.warn(
+        `Batch splitting ${inputBlocks.length} -> ${left.length} + ${right.length} blocks`,
+      );
+      // Sequential: parallel halves would oversubscribe the worker pool slot
+      // and starve other batches.
+      const leftResult = await this.translateBatch(
+        left, sourceLang, targetLang, provider, maxRetries, fileContext, cancelSignal,
+      );
+      const rightResult = await this.translateBatch(
+        right, sourceLang, targetLang, provider, maxRetries, fileContext, cancelSignal,
+      );
+      return [...leftResult, ...rightResult];
+    }
+
     throw new Error(
-      `Batch failed all ${maxRetries} retries (block ${firstBlockNum}): ${lastError}`,
+      `Batch failed all ${attempts} retries (block ${firstBlockNum}): ${lastError}`,
     );
+  }
+
+  // ---------------------------------------------------------------------
+  // Chat HTTP call (shared by scan + translation)
+  // ---------------------------------------------------------------------
+
+  private async callChat(
+    systemPrompt: string,
+    userMessage: string,
+    provider: ProviderConfig,
+    maxTokens: number,
+    cancelSignal?: AbortSignal,
+  ): Promise<string> {
+    const body: Record<string, unknown> = {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+      temperature: 0.1,
+      max_tokens: Math.max(maxTokens, 1),
+      stream: false,
+      cache_prompt: true,
+    };
+    if (provider.model) body['model'] = provider.model;
+
+    const url = sanitizeApiUrl(provider.apiUrl);
+    const headers = buildHeaders(sanitizeApiKey(provider.apiKey));
+    const resp = await this.postChat(url, body, headers, cancelSignal);
+    return resp.choices[0].message.content;
   }
 
   private postChat(
@@ -216,27 +317,6 @@ export class TranslationService {
 
       cancelSignal?.addEventListener('abort', onAbort, { once: true });
     });
-  }
-
-  private buildRequestBody(
-    sourceLang: string,
-    targetLang: string,
-    batchSrt: string,
-    model: string,
-    blockCount: number,
-  ): Record<string, unknown> {
-    const body: Record<string, unknown> = {
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: buildUserMessage(sourceLang, targetLang, batchSrt) },
-      ],
-      temperature: 0.1,
-      max_tokens: Math.max(blockCount, 1) * 120,
-      stream: false,
-      cache_prompt: true,
-    };
-    if (model) body['model'] = model;
-    return body;
   }
 
   /** Pull a human-readable message out of whatever shape the provider returned. */
