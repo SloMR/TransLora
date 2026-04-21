@@ -18,11 +18,8 @@ const EXT_TO_FORMAT: Record<string, string> = {
   sbv: 'sbv',
 };
 
-/**
- * Parse any supported subtitle file via subsrt-ts. All formats normalize to
- * SRT-shape blocks for the LLM; rebuild round-trips through subsrt-ts back
- * into the original on-disk format.
- */
+// Parses via subsrt-ts. All formats normalize to SRT-shape blocks; rebuild
+// round-trips back through subsrt-ts into the original on-disk format.
 export function parseSubtitle(fileName: string, content: string): SubtitleDocument {
   const ext = fileExt(fileName);
   const format = EXT_TO_FORMAT[ext];

@@ -1,15 +1,5 @@
-/**
- * One-shot prepass: scan the whole file for cast, recurring terms, and tone
- * notes before batched translation begins.
- *
- * Goal is to fix gendered-pronoun errors in languages like Arabic, where the
- * model must pick masculine/feminine forms but English gives no signal. We
- * send the full source text once, ask for a compact glossary, and inject the
- * relevant slice into each batch's prompt.
- *
- * If the scan fails for any reason, callers get an empty FileContext and
- * translation proceeds exactly as it did before.
- */
+// One-shot prepass: scans the file once for cast/terms/register so every batch
+// shares the same glossary. Fails silently to an empty FileContext.
 
 import { SubtitleBlock } from './srt-parser';
 
@@ -37,9 +27,7 @@ Rules:
 - Include up to 20 named characters, 10 recurring proper terms or jargon, 4 brief notes on setting/tone.
 - Leave a section empty (tags only) if nothing qualifies. Never omit a section.`;
 
-// Rough cap on source text sent to the scan. Tuned so small-context models
-// (4k-8k total) still have room for the system prompt, the output, and a
-// safety margin. ~4 chars ≈ 1 token on Latin text.
+// Sized so small-context models (4k-8k) still have room for prompt + output.
 export const SCAN_CHAR_BUDGET = 12_000;
 export const SCAN_MAX_TOKENS = 1500;
 
@@ -68,13 +56,8 @@ export class FileContext {
     return !(this.register || this.characters.length || this.terms.length || this.notes.length);
   }
 
-  /**
-   * Return only the glossary slice relevant to this batch.
-   *
-   * Register and notes are always included (short, file-wide). Characters and
-   * terms are included only if their source form appears in the batch.
-   * Returns an empty string when there is nothing worth injecting.
-   */
+  // Glossary slice scoped to names/terms present in this batch. Register and
+  // notes are file-wide and always included if set.
   renderForBatch(batch: SubtitleBlock[]): string {
     const text = batch.map((b) => b.text).join('\n');
     const chars = this.characters.filter((h) => containsWord(text, h.source));
@@ -113,21 +96,14 @@ function containsWord(text: string, word: string): boolean {
   return re.test(text);
 }
 
-/**
- * Serialize subtitle text for the scan pass — no numbers, no timestamps.
- *
- * For large files we can't fit every block in the scan call, so we stride-
- * sample evenly across the whole file. Sampling preserves each character's
- * chance of appearing at least once in the glossary, regardless of where
- * they're first introduced.
- */
+// Stride-samples large files so characters introduced late still have a
+// chance to land in the glossary.
 export function serializeForScan(blocks: SubtitleBlock[]): string {
   const totalChars = blocks.reduce((sum, b) => sum + b.text.length + 1, 0);
   if (totalChars <= SCAN_CHAR_BUDGET || blocks.length <= 1) {
     return blocks.map((b) => b.text).join('\n');
   }
 
-  // Estimate how many blocks fit in the budget, then sample evenly.
   const takeN = Math.max(1, Math.floor((blocks.length * SCAN_CHAR_BUDGET) / totalChars));
   const step = blocks.length / takeN;
   const sampled: SubtitleBlock[] = [];
@@ -143,7 +119,7 @@ function stripBullet(line: string): string {
   return line.trim().replace(/^[-*•]\s*/, '').trim();
 }
 
-/** Parse the tagged response. Tolerates extra whitespace and bullet markers. */
+// Parse tagged response. Tolerates extra whitespace and bullet markers.
 export function parseContextResponse(text: string): FileContext {
   const sections: Record<string, string> = {};
   const src = text || '';
@@ -153,7 +129,6 @@ export function parseContextResponse(text: string): FileContext {
     sections[m[1].toLowerCase()] = m[2];
   }
 
-  // Register is free-form but must be a single line; collapse any whitespace.
   const rawRegister = sections['register'] ?? '';
   const register = stripBullet(rawRegister.split(/\s+/).join(' '));
 

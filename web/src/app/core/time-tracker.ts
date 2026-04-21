@@ -9,11 +9,8 @@ interface ProgressItem {
   totalBatches?: number;
 }
 
-/**
- * Tracks elapsed time, per-file average, and ETA for a translation run.
- * Owns its own ticker (updates every 500 ms while running) and exposes
- * pre-formatted strings the template can render directly.
- */
+// Elapsed / avg / ETA for a translation run. Owns its own 500ms ticker and
+// exposes pre-formatted strings for the template.
 export class TimeTracker {
   private startMs = signal(0);
   private nowMs = signal(0);
@@ -26,8 +23,6 @@ export class TimeTracker {
     private inProgressFiles: Signal<ProgressItem[]>,
     private pendingCount: Signal<number>,
   ) {}
-
-  // --- Raw numbers -------------------------------------------------------
 
   elapsedMs = computed(() => {
     this.nowMs(); // subscribe to ticks
@@ -42,14 +37,9 @@ export class TimeTracker {
     return done.reduce((s, f) => s + (f.timeMs ?? 0), 0) / done.length;
   });
 
-  /**
-   * Remaining wall-clock time in ms, or null until we have any progress.
-   *
-   * Uses fractional file-equivalents: completed files count as 1, in-progress
-   * files contribute `currentBatch / totalBatches`. Dividing elapsed time by
-   * that fraction gives a rate we can extrapolate from — so ETA starts showing
-   * as soon as any file reports its first batch, including single-file runs.
-   */
+  // Fractional file-equivalents: in-progress files contribute
+  // currentBatch/totalBatches, so ETA shows up as soon as any file reports a
+  // first batch (including single-file runs).
   etaMs = computed<number | null>(() => {
     const done = this.doneFiles();
     const inProgress = this.inProgressFiles();
@@ -71,8 +61,6 @@ export class TimeTracker {
     return (elapsed * (totalFiles - fractionalDone)) / fractionalDone;
   });
 
-  // --- Formatted for templates ------------------------------------------
-
   elapsedFormatted = computed(() => this.formatMs(this.elapsedMs()));
 
   totalFormatted = computed(() => {
@@ -90,9 +78,6 @@ export class TimeTracker {
     return ms === null || ms <= 0 ? '' : this.formatMs(ms);
   });
 
-  // --- Control ----------------------------------------------------------
-
-  /** Start a fresh run: resets totals, captures the start time, starts ticking. */
   begin(): void {
     const now = performance.now();
     this.totalMs.set(0);
@@ -102,10 +87,8 @@ export class TimeTracker {
     this.startTicker();
   }
 
-  /**
-   * Continue an existing run after idle (e.g. retry-failed). Elapsed time
-   * picks up where the previous `finish()` left off instead of resetting to 0.
-   */
+  // Continues after idle (e.g. retry-failed) so elapsed time picks up where
+  // finish() left off instead of resetting.
   resume(): void {
     const now = performance.now();
     const prev = this.totalMs();
@@ -115,24 +98,20 @@ export class TimeTracker {
     this.startTicker();
   }
 
-  /** Freeze the final elapsed time and stop ticking. */
   finish(): void {
     this.totalMs.set(performance.now() - this.startMs());
     this.running.set(false);
     this.stopTicker();
   }
 
-  /** Clear the frozen total (used when the user resets the UI). */
   reset(): void {
     this.totalMs.set(0);
   }
 
-  /** Stop the ticker — call from ngOnDestroy. */
   destroy(): void {
     this.stopTicker();
   }
 
-  /** '42s', '3m 20s', '1h 5m'. Public so the template can format one-off values. */
   formatMs(ms: number): string {
     const totalSec = Math.round(ms / 1000);
     if (totalSec < 60) return `${totalSec}s`;

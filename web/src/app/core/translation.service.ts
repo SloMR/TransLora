@@ -24,7 +24,6 @@ export interface ProviderConfig {
   model: string;
 }
 
-/** Sent to the caller every time a batch starts or finishes. */
 export interface TranslationProgress {
   currentBatch: number;
   totalBatches: number;
@@ -50,11 +49,6 @@ type ChatResponse = { choices: { message: { content: string } }[] };
 export class TranslationService {
   constructor(private http: HttpClient) {}
 
-  /**
-   * Translate a parsed subtitle document. The document's blocks are translated
-   * in batches and then stitched back together using the document's own
-   * `rebuild`, which preserves the source file's original format.
-   */
   async translateDocument(
     doc: SubtitleDocument,
     sourceLang: string,
@@ -78,7 +72,6 @@ export class TranslationService {
     const batches = splitBatches(doc.blocks, batchSize);
     const results: SubtitleBlock[][] = new Array(batches.length);
 
-    // Simple worker pool: each worker pulls the next index until none left.
     let nextIdx = 0;
     let completed = 0;
     const emit = () => onProgress?.({
@@ -108,10 +101,6 @@ export class TranslationService {
     return doc.rebuild(translated);
   }
 
-  // ---------------------------------------------------------------------
-  // Prepass: one scan call for cast, recurring terms, and tone notes.
-  // ---------------------------------------------------------------------
-
   private async extractFileContext(
     blocks: SubtitleBlock[],
     sourceLang: string,
@@ -137,10 +126,6 @@ export class TranslationService {
     }
   }
 
-  // ---------------------------------------------------------------------
-  // Per-batch translation with retry + recursive split on validation failure
-  // ---------------------------------------------------------------------
-
   private async translateBatch(
     inputBlocks: SubtitleBlock[],
     sourceLang: string,
@@ -153,9 +138,8 @@ export class TranslationService {
     throwIfCancelled(cancelSignal);
 
     const canSplit = inputBlocks.length > 1;
-    // Give splittable batches fewer retries before halving — persistent count
-    // mismatches almost always resolve when we hand the model fewer similar
-    // blocks. Single-block batches can't be split, so let them exhaust.
+    // Splittable batches give up early — halving resolves persistent count
+    // mismatches faster than more retries on the same payload.
     const attempts = canSplit ? ATTEMPTS_BEFORE_SPLIT : maxRetries;
     const firstBlockNum = inputBlocks[0].number;
 
@@ -173,7 +157,7 @@ export class TranslationService {
           Math.max(inputBlocks.length, 1) * 120, cancelSignal,
         );
         let output = parseLite(stripMarkdownFences(raw));
-        // Reattach timestamps from the original input positionally.
+        // Wire format strips timestamps; reattach positionally.
         if (output.length === inputBlocks.length) {
           output = output.map((b, i) => ({
             number: inputBlocks[i].number,
@@ -201,12 +185,10 @@ export class TranslationService {
           lastError,
         );
 
-        // Fail fast on non-retryable errors (bad key, bad request, etc.)
         if (!isRetryableStatus(status)) {
           throw new Error(`HTTP ${status}: ${lastError} (block ${firstBlockNum})`);
         }
 
-        // Rate-limited: exponential backoff before retrying.
         if (status === 429 && attempt < attempts) {
           const delay = 2 ** attempt * 1000;
           console.warn(`Rate limited — waiting ${delay / 1000}s...`);
@@ -215,15 +197,13 @@ export class TranslationService {
         }
       }
 
-      // Small linear backoff between other retries (1s, 2s, 3s cap).
       if (attempt < attempts) {
         await sleep(Math.min(attempt, 3) * 1000, cancelSignal);
       }
     }
 
-    // Attempts exhausted. If we hit validation errors and can still split,
-    // halve and retry each half independently. Recurse until single-block
-    // batches, which can't have count mismatches.
+    // Recursive split: halve on persistent validation failure. Terminates at
+    // N=1 where count mismatch is impossible.
     if (hitValidationFailure && canSplit) {
       const mid = Math.floor(inputBlocks.length / 2);
       const left = inputBlocks.slice(0, mid);
@@ -231,8 +211,7 @@ export class TranslationService {
       console.warn(
         `Batch splitting ${inputBlocks.length} -> ${left.length} + ${right.length} blocks`,
       );
-      // Sequential: parallel halves would oversubscribe the worker pool slot
-      // and starve other batches.
+      // Sequential: parallel halves would oversubscribe the worker pool slot.
       const leftResult = await this.translateBatch(
         left, sourceLang, targetLang, provider, maxRetries, fileContext, cancelSignal,
       );
@@ -246,10 +225,6 @@ export class TranslationService {
       `Batch failed all ${attempts} retries (block ${firstBlockNum}): ${lastError}`,
     );
   }
-
-  // ---------------------------------------------------------------------
-  // Chat HTTP call (shared by scan + translation)
-  // ---------------------------------------------------------------------
 
   private async callChat(
     systemPrompt: string,
@@ -320,7 +295,6 @@ export class TranslationService {
     });
   }
 
-  /** Pull a human-readable message out of whatever shape the provider returned. */
   private extractServerMessage(err: unknown): string {
     if (!(err instanceof HttpErrorResponse) || !err.error) return '';
     const body = Array.isArray(err.error) ? err.error[0] : err.error;
@@ -340,13 +314,9 @@ export class TranslationService {
 }
 
 
-// ---------------------------------------------------------------------------
-// HELPERS
-// ---------------------------------------------------------------------------
-
 const CRED_QUERY_PARAMS = ['key', 'api_key', 'apikey', 'access_token'];
 
-/** Drop credential query params like `?key=...` — we authenticate via header. */
+// We authenticate via header, so strip credential query params before sending.
 function sanitizeApiUrl(url: string): string {
   const trimmed = (url ?? '').trim();
   if (!trimmed) return trimmed;
@@ -359,7 +329,6 @@ function sanitizeApiUrl(url: string): string {
   }
 }
 
-/** Strip whitespace, surrounding quotes, and any accidental `Bearer ` prefix. */
 function sanitizeApiKey(key: string): string {
   let k = (key ?? '').trim();
   if ((k.startsWith('"') && k.endsWith('"')) || (k.startsWith("'") && k.endsWith("'"))) {
@@ -375,7 +344,7 @@ function buildHeaders(apiKey: string): Record<string, string> {
   return headers;
 }
 
-/** LLMs sometimes wrap output in ```...``` despite being told not to. */
+// LLMs sometimes wrap output in ```...``` even when told not to.
 function stripMarkdownFences(text: string): string {
   let t = text.trim();
   if (t.startsWith('```')) {
@@ -384,7 +353,6 @@ function stripMarkdownFences(text: string): string {
   return t;
 }
 
-/** Retry on timeout, rate-limit, 5xx, or network errors. Everything else is fatal. */
 function isRetryableStatus(status: number): boolean {
   return status === 0 || status === 408 || status === 429 || status >= 500;
 }

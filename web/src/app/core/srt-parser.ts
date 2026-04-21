@@ -11,11 +11,7 @@ export interface ValidationResult {
 
 const TIMESTAMP_RE = /^\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}$/;
 
-/**
- * Parse raw .srt content into SubtitleBlock array.
- */
 export function parseSrt(content: string): SubtitleBlock[] {
-  // Normalize line endings and strip BOM
   content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   if (content.charCodeAt(0) === 0xfeff) {
     content = content.slice(1);
@@ -42,9 +38,6 @@ export function parseSrt(content: string): SubtitleBlock[] {
   return blocks;
 }
 
-/**
- * Serialize SubtitleBlock array back to .srt file content.
- */
 export function serializeSrt(blocks: SubtitleBlock[]): string {
   return (
     blocks.map((b) => `${b.number}\n${b.timestamp}\n${b.text}`).join('\n\n') +
@@ -52,17 +45,12 @@ export function serializeSrt(blocks: SubtitleBlock[]): string {
   );
 }
 
-// Wire format sent to the LLM: number + text only. Timestamps are pure noise
-// for the model — it echoes them back, and small models sometimes corrupt a
-// digit. We strip them before sending and reattach from the original input.
+// Wire format: number + text only. Timestamps are stripped before sending
+// because small models sometimes corrupt them; callers reattach positionally.
 export function serializeLite(blocks: SubtitleBlock[]): string {
   return blocks.map((b) => `${b.number}\n${b.text}`).join('\n\n') + '\n';
 }
 
-/**
- * Parse the wire-format response. Timestamps are left empty — callers reattach
- * them positionally from the original batch.
- */
 export function parseLite(content: string): SubtitleBlock[] {
   content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
@@ -83,9 +71,6 @@ export function parseLite(content: string): SubtitleBlock[] {
   return blocks;
 }
 
-/**
- * Split blocks into batches of the given size.
- */
 export function splitBatches(
   blocks: SubtitleBlock[],
   batchSize: number = 15
@@ -97,9 +82,6 @@ export function splitBatches(
   return batches;
 }
 
-/**
- * Validate that translated output matches input structure.
- */
 export function validateBatch(
   inputBlocks: SubtitleBlock[],
   outputBlocks: SubtitleBlock[]

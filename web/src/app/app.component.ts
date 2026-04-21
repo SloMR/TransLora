@@ -21,7 +21,6 @@ import {
 } from './core/file-types';
 import { TimeTracker } from './core/time-tracker';
 
-// Defaults — kept in one place so "Reset defaults" is trivial
 const DEFAULTS = {
   sourceLang: '',
   targetLang: 'Arabic',
@@ -44,15 +43,12 @@ export class AppComponent implements OnDestroy {
   providerKeys = PROVIDER_KEYS;
   presets = PROVIDER_PRESETS;
 
-  // Languages
   sourceLang = signal(DEFAULTS.sourceLang);
   targetLang = signal(DEFAULTS.targetLang);
 
-  // Files
   files = signal<UploadedFile[]>([]);
   dragOver = signal(false);
 
-  // Provider
   providerType = signal('custom');
   apiUrl = signal('');
   apiKey = signal('');
@@ -63,10 +59,8 @@ export class AppComponent implements OnDestroy {
   parallelFiles = signal(DEFAULTS.parallelFiles);
   maxRetries = signal(DEFAULTS.maxRetries);
 
-  // Theme
   theme = signal<'light' | 'dark'>('light');
 
-  // Translation state
   isTranslating = signal(false);
   isCancelling = signal(false);
   fileStatuses = signal<FileStatus[]>([]);
@@ -78,7 +72,6 @@ export class AppComponent implements OnDestroy {
   private runController: AbortController | null = null;
   private cancelRequested = false;
 
-  // Computed
   currentPreset = computed(() => PROVIDER_PRESETS[this.providerType()]);
 
   totalBlocks = computed(() =>
@@ -113,7 +106,6 @@ export class AppComponent implements OnDestroy {
     return Math.round((sum / all.length) * 100);
   });
 
-  // Elapsed / avg / ETA timing lives in a dedicated helper.
   tracker = new TimeTracker(
     this.doneFiles,
     this.inProgressFiles,
@@ -204,8 +196,6 @@ export class AppComponent implements OnDestroy {
     this.tracker.destroy();
   }
 
-  // --- Theme ---
-
   private initTheme() {
     if (typeof window === 'undefined') {
       this.setTheme('light');
@@ -226,8 +216,6 @@ export class AppComponent implements OnDestroy {
       document.documentElement.setAttribute('data-theme', next);
     }
   }
-
-  // --- Files ---
 
   onDragOver(event: DragEvent) {
     event.preventDefault();
@@ -327,8 +315,6 @@ export class AppComponent implements OnDestroy {
     });
   }
 
-  // --- Provider ---
-
   onProviderTypeChange(type: string) {
     this.providerType.set(type);
     const preset = PROVIDER_PRESETS[type];
@@ -348,13 +334,10 @@ export class AppComponent implements OnDestroy {
 
   swapLanguages() {
     const source = this.sourceLang();
-    // Nothing sensible to swap when source is "auto-detect" — target stays as-is.
     if (!source) return;
     this.sourceLang.set(this.targetLang());
     this.targetLang.set(source);
   }
-
-  // --- Translation ---
 
   startTranslation() {
     if (!this.canTranslate()) return;
@@ -371,7 +354,6 @@ export class AppComponent implements OnDestroy {
         status: 'pending' as const,
       }))
     );
-
     this.enqueue(this.files().map((_, i) => i), false);
   }
 
@@ -381,7 +363,6 @@ export class AppComponent implements OnDestroy {
     this.errorMessage.set('');
     this.isCancelling.set(false);
 
-    // Reset failed files to pending and collect their indices.
     const retryIndices: number[] = [];
     this.fileStatuses.update((statuses) =>
       statuses.map((s, i) => {
@@ -403,12 +384,9 @@ export class AppComponent implements OnDestroy {
     this.enqueue(retryIndices, true);
   }
 
-  /**
-   * Push indices onto the shared work queue and make sure enough workers are
-   * running. Safe to call while a previous run is still in flight — new items
-   * are picked up by idle workers, or fresh ones are spawned up to
-   * `parallelFiles()`.
-   */
+  // Pushes indices onto the shared queue and ensures enough workers are running.
+  // Safe to call mid-run: idle workers pick up new items, or fresh ones spawn
+  // up to parallelFiles().
   private enqueue(indices: number[], isRetry: boolean) {
     if (indices.length === 0) return;
 
@@ -467,8 +445,8 @@ export class AppComponent implements OnDestroy {
 
           if (cancelled) {
             this.cancelRequested = false;
-            // Mark anything still pending/translating as failed so the user
-            // keeps done/failed entries and can retry the interrupted ones.
+            // Mark still-pending/translating entries as failed so they remain
+            // retryable from the UI.
             this.fileStatuses.update((arr) =>
               arr.map((s) =>
                 s.status === 'pending' || s.status === 'translating'
@@ -548,8 +526,6 @@ export class AppComponent implements OnDestroy {
     });
   }
 
-  // --- Downloads ---
-
   downloadFile(f: FileStatus) {
     if (f.content) this.downloadBlob(f.content, f.outputName);
   }
@@ -596,14 +572,10 @@ export class AppComponent implements OnDestroy {
     URL.revokeObjectURL(url);
   }
 
-  // --- Reset ---
-
   reset() {
     this.files.set([]);
     this.clearRunState(true);
   }
-
-  // --- Helpers ---
 
   private clearRunState(clearError: boolean) {
     this.workQueue = [];
@@ -620,7 +592,6 @@ export class AppComponent implements OnDestroy {
     return m ? `${m[1]}.${code}${m[2]}` : `${name}.${code}`;
   }
 
-  /** Look up the 2-letter code for the current target language. */
   private targetLangCode(): string {
     const name = this.targetLang();
     return this.languages.find((l) => l.name === name)?.code
