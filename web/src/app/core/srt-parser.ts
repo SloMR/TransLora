@@ -11,11 +11,7 @@ export interface ValidationResult {
 
 const TIMESTAMP_RE = /^\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}$/;
 
-/**
- * Parse raw .srt content into SubtitleBlock array.
- */
 export function parseSrt(content: string): SubtitleBlock[] {
-  // Normalize line endings and strip BOM
   content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   if (content.charCodeAt(0) === 0xfeff) {
     content = content.slice(1);
@@ -42,9 +38,6 @@ export function parseSrt(content: string): SubtitleBlock[] {
   return blocks;
 }
 
-/**
- * Serialize SubtitleBlock array back to .srt file content.
- */
 export function serializeSrt(blocks: SubtitleBlock[]): string {
   return (
     blocks.map((b) => `${b.number}\n${b.timestamp}\n${b.text}`).join('\n\n') +
@@ -52,9 +45,32 @@ export function serializeSrt(blocks: SubtitleBlock[]): string {
   );
 }
 
-/**
- * Split blocks into batches of the given size.
- */
+// Wire format: number + text only. Timestamps are stripped before sending
+// because small models sometimes corrupt them; callers reattach positionally.
+export function serializeLite(blocks: SubtitleBlock[]): string {
+  return blocks.map((b) => `${b.number}\n${b.text}`).join('\n\n') + '\n';
+}
+
+export function parseLite(content: string): SubtitleBlock[] {
+  content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
+
+  const rawBlocks = content.trim().split(/\n\n+/);
+  const blocks: SubtitleBlock[] = [];
+
+  for (const raw of rawBlocks) {
+    const lines = raw.trim().split('\n');
+    if (lines.length < 1) continue;
+
+    const number = parseInt(lines[0].trim(), 10);
+    if (isNaN(number)) continue;
+
+    const text = lines.slice(1).join('\n');
+    blocks.push({ number, timestamp: '', text });
+  }
+  return blocks;
+}
+
 export function splitBatches(
   blocks: SubtitleBlock[],
   batchSize: number = 15
@@ -66,9 +82,6 @@ export function splitBatches(
   return batches;
 }
 
-/**
- * Validate that translated output matches input structure.
- */
 export function validateBatch(
   inputBlocks: SubtitleBlock[],
   outputBlocks: SubtitleBlock[]

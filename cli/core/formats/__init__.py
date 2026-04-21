@@ -1,11 +1,6 @@
 """Multi-format subtitle parsing via pysubs2 (with a small SBV fallback).
-
-Every supported format is normalized to SRT-shape blocks (sequential numbers
-starting at 1 and ``HH:MM:SS,mmm --> HH:MM:SS,mmm`` timestamps) so the LLM
-always sees the same structure. Rebuild delegates back to the underlying
-library for each source format, preserving headers, styles, and per-cue
-metadata.
-"""
+Every format is normalized to SRT-shape blocks so the LLM sees one structure;
+rebuild delegates back to pysubs2 to preserve headers, styles, and per-cue metadata."""
 
 from __future__ import annotations
 
@@ -27,7 +22,6 @@ _EXT_TO_PYSUBS2: dict[str, str] = {
 
 
 def parse_subtitle(file_name: str, content: str) -> SubtitleDocument:
-    """Dispatch to the right parser based on the filename's extension."""
     ext = Path(file_name).suffix.lower().lstrip(".")
     if ext == "sbv":
         return parse_sbv(content)

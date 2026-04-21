@@ -1,10 +1,4 @@
-"""Per-batch HTTP call, response sanitizing, and retry loop.
-
-This is the "send one batch, get it back validated" layer. It knows how
-to talk to an OpenAI-compatible chat endpoint and how to recover from
-transient failures. Everything above this layer (translator.py) just
-asks for batches and stitches them together.
-"""
+"""Per-batch HTTP call, response sanitizing, and retry loop."""
 
 from __future__ import annotations
 
@@ -14,7 +8,8 @@ from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 import httpx
 
-from .srt_parser import SubtitleBlock, parse_srt, serialize_srt, validate_batch
+from .context_pass import FileContext
+from .srt_parser import SubtitleBlock, parse_lite, serialize_lite, validate_batch
 from .config import TranslationConfig
 from .prompt import SYSTEM_PROMPT
 
@@ -25,16 +20,11 @@ _CRED_QUERY_PARAMS = {"key", "api_key", "apikey", "access_token"}
 
 
 class FileTranslationError(Exception):
-    """A batch used up all its retries — the whole file is considered failed."""
+    """A batch exhausted its retries; the whole file is considered failed."""
 
-
-# ---------------------------------------------------------------------------
-# Input sanitization — users paste URLs/keys in all kinds of shapes.
-# ---------------------------------------------------------------------------
 
 def sanitize_api_url(url: str) -> str:
-    """Drop credential query params like `?key=...` so we don't authenticate
-    twice when the user pastes a pre-keyed URL."""
+    """Drop credential query params so we don't authenticate twice."""
     url = (url or "").strip()
     if not url:
         return url
@@ -49,7 +39,6 @@ def sanitize_api_url(url: str) -> str:
 
 
 def sanitize_api_key(key: str) -> str:
-    """Strip whitespace, surrounding quotes, and any `Bearer ` prefix."""
     k = (key or "").strip()
     if (k.startswith('"') and k.endswith('"')) or \
        (k.startswith("'") and k.endswith("'")):
@@ -60,7 +49,6 @@ def sanitize_api_key(key: str) -> str:
 
 
 def strip_markdown_fences(text: str) -> str:
-    """LLMs sometimes wrap output in ```...``` despite being told not to."""
     text = text.strip()
     if text.startswith("```"):
         text = re.sub(r"^```[a-zA-Z]*\n?", "", text)
@@ -69,29 +57,23 @@ def strip_markdown_fences(text: str) -> str:
 
 
 def is_retryable_http(code: int) -> bool:
-    """Retry on timeout / rate-limit / server errors. Everything else is fatal."""
     return code in (408, 429) or code >= 500
 
 
-# ---------------------------------------------------------------------------
-# HTTP call + retry
-# ---------------------------------------------------------------------------
-
 async def call_chat_api(
     client: httpx.AsyncClient,
-    batch_srt: str,
+    system_prompt: str,
+    user_message: str,
     cfg: TranslationConfig,
-    block_count: int,
+    max_tokens: int,
 ) -> str:
-    """POST one batch to the OpenAI-compatible chat endpoint, return raw text."""
     body: dict = {
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content":
-                f"Translate from {cfg.source_lang} to {cfg.target_lang}:\n\n{batch_srt}"},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
         ],
         "temperature": 0.1,
-        "max_tokens": max(block_count, 1) * 120,
+        "max_tokens": max(max_tokens, 1),
         "stream": False,
         "cache_prompt": True,
     }
@@ -109,25 +91,67 @@ async def call_chat_api(
     return resp.json()["choices"][0]["message"]["content"]
 
 
+def _build_user_message(
+    cfg: TranslationConfig,
+    batch_wire: str,
+    file_context: FileContext | None,
+    batch: list[SubtitleBlock],
+) -> str:
+    if cfg.source_lang:
+        header = f"Translate from {cfg.source_lang} to {cfg.target_lang}:"
+    else:
+        header = f"Translate to {cfg.target_lang}:"
+    if file_context is not None:
+        ctx = file_context.render_for_batch(batch)
+        if ctx:
+            return f"Glossary for this scene:\n{ctx}\n\n{header}\n\n{batch_wire}"
+    return f"{header}\n\n{batch_wire}"
+
+
+_ATTEMPTS_BEFORE_SPLIT = 2
+
+
 async def translate_batch_with_retry(
     client: httpx.AsyncClient,
     batch_idx: int,
     batch: list[SubtitleBlock],
     cfg: TranslationConfig,
+    file_context: FileContext | None = None,
+    _split_path: str = "",
 ) -> list[SubtitleBlock]:
-    """Translate one batch; retry on transient errors; raise on exhaustion."""
-    batch_srt = serialize_srt(batch)
-    label = f"Batch {batch_idx + 1}"
+    """Translate one batch; on repeated validation failure, halve and recurse.
+
+    Persistent count mismatches usually mean the model is deterministically
+    merging two adjacent similar-looking blocks. Halving keeps terminating
+    because at N=1 a count mismatch is impossible.
+    """
+    batch_wire = serialize_lite(batch)
+    user_msg = _build_user_message(cfg, batch_wire, file_context, batch)
+    label = f"Batch {batch_idx + 1}" + (f".{_split_path}" if _split_path else "")
     first_block = batch[0].number
 
-    for attempt in range(1, cfg.max_retries + 1):
-        tag = f"attempt {attempt}/{cfg.max_retries}"
+    can_split = len(batch) > 1
+    attempts = _ATTEMPTS_BEFORE_SPLIT if can_split else cfg.max_retries
+    hit_validation_failure = False
+
+    for attempt in range(1, attempts + 1):
+        tag = f"attempt {attempt}/{attempts}"
         try:
-            raw = await call_chat_api(client, batch_srt, cfg, len(batch))
-            output = parse_srt(strip_markdown_fences(raw))
+            raw = await call_chat_api(
+                client, SYSTEM_PROMPT, user_msg, cfg, max(len(batch), 1) * 120,
+            )
+            output = parse_lite(strip_markdown_fences(raw))
+            if len(output) == len(batch):
+                output = [
+                    SubtitleBlock(number=batch[i].number,
+                                  timestamp=batch[i].timestamp,
+                                  text=output[i].text)
+                    for i in range(len(batch))
+                ]
             check = validate_batch(batch, output)
             if check.ok:
                 return output
+            hit_validation_failure = True
             cfg.warn(f"    {label} validation failed ({tag}): {check.error}")
 
         except httpx.HTTPStatusError as e:
@@ -139,19 +163,35 @@ async def translate_batch_with_retry(
                 raise FileTranslationError(
                     f"{label} (block {first_block}) HTTP {code}: {snippet}"
                 )
-            if code == 429 and attempt < cfg.max_retries:
+            if code == 429 and attempt < attempts:
                 delay = 2 ** attempt
-                cfg.warn(f"    Rate limited — waiting {delay}s...")
+                cfg.warn(f"    Rate limited - waiting {delay}s...")
                 await asyncio.sleep(delay)
                 continue
 
-        except Exception as e:  # network error, JSON decode error, etc.
+        except Exception as e:
             cfg.warn(f"    {label} request failed ({tag}): {e}")
 
-        # Small back-off before the next attempt (1s, 2s, 3s cap).
-        if attempt < cfg.max_retries:
+        if attempt < attempts:
             await asyncio.sleep(min(attempt, 3))
 
+    if hit_validation_failure and can_split:
+        mid = len(batch) // 2
+        left, right = batch[:mid], batch[mid:]
+        cfg.warn(
+            f"    {label} splitting {len(batch)} -> {len(left)} + {len(right)} blocks"
+        )
+        left_path = (_split_path + "L") if _split_path else "L"
+        right_path = (_split_path + "R") if _split_path else "R"
+        # Sequential: parallel halves would oversubscribe the outer semaphore.
+        left_result = await translate_batch_with_retry(
+            client, batch_idx, left, cfg, file_context, left_path,
+        )
+        right_result = await translate_batch_with_retry(
+            client, batch_idx, right, cfg, file_context, right_path,
+        )
+        return left_result + right_result
+
     raise FileTranslationError(
-        f"{label} (block {first_block}) failed all {cfg.max_retries} retries"
+        f"{label} (block {first_block}) failed all {attempts} retries"
     )

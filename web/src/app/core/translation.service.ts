@@ -3,13 +3,20 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Subscription } from 'rxjs';
 import {
   SubtitleBlock,
-  parseSrt,
-  serializeSrt,
+  parseLite,
+  serializeLite,
   splitBatches,
   validateBatch,
 } from './srt-parser';
 import { SubtitleDocument } from './subtitle-formats/types';
 import { SYSTEM_PROMPT, buildUserMessage } from './translation-prompt';
+import {
+  CONTEXT_SYSTEM_PROMPT,
+  FileContext,
+  SCAN_MAX_TOKENS,
+  parseContextResponse,
+  serializeForScan,
+} from './context-pass';
 
 export interface ProviderConfig {
   apiUrl: string;
@@ -17,7 +24,6 @@ export interface ProviderConfig {
   model: string;
 }
 
-/** Sent to the caller every time a batch starts or finishes. */
 export interface TranslationProgress {
   currentBatch: number;
   totalBatches: number;
@@ -31,9 +37,11 @@ export class TranslationCancelledError extends Error {
 }
 
 export const DEFAULT_MAX_RETRIES = 5;
-export const DEFAULT_BATCH_SIZE = 5;
+export const DEFAULT_BATCH_SIZE = 10;
 export const DEFAULT_CONCURRENCY = 5;
 export const DEFAULT_PARALLEL_FILES = 1;
+
+const ATTEMPTS_BEFORE_SPLIT = 2;
 
 type ChatResponse = { choices: { message: { content: string } }[] };
 
@@ -41,11 +49,6 @@ type ChatResponse = { choices: { message: { content: string } }[] };
 export class TranslationService {
   constructor(private http: HttpClient) {}
 
-  /**
-   * Translate a parsed subtitle document. The document's blocks are translated
-   * in batches and then stitched back together using the document's own
-   * `rebuild`, which preserves the source file's original format.
-   */
   async translateDocument(
     doc: SubtitleDocument,
     sourceLang: string,
@@ -62,10 +65,13 @@ export class TranslationService {
     }
     throwIfCancelled(cancelSignal);
 
+    const fileContext = await this.extractFileContext(
+      doc.blocks, sourceLang, targetLang, provider, cancelSignal,
+    );
+
     const batches = splitBatches(doc.blocks, batchSize);
     const results: SubtitleBlock[][] = new Array(batches.length);
 
-    // Simple worker pool: each worker pulls the next index until none left.
     let nextIdx = 0;
     let completed = 0;
     const emit = () => onProgress?.({
@@ -79,7 +85,7 @@ export class TranslationService {
         const i = nextIdx++;
         if (i >= batches.length) return;
         results[i] = await this.translateBatch(
-          batches[i], sourceLang, targetLang, provider, maxRetries, cancelSignal,
+          batches[i], sourceLang, targetLang, provider, maxRetries, fileContext, cancelSignal,
         );
         completed++;
         emit();
@@ -95,9 +101,30 @@ export class TranslationService {
     return doc.rebuild(translated);
   }
 
-  // ---------------------------------------------------------------------
-  // Per-batch translation with retry
-  // ---------------------------------------------------------------------
+  private async extractFileContext(
+    blocks: SubtitleBlock[],
+    sourceLang: string,
+    targetLang: string,
+    provider: ProviderConfig,
+    cancelSignal?: AbortSignal,
+  ): Promise<FileContext> {
+    const sourceLine = sourceLang ? `Source language: ${sourceLang}\n` : '';
+    const userMessage =
+      sourceLine +
+      `Target language: ${targetLang}\n\n` +
+      serializeForScan(blocks);
+
+    try {
+      const raw = await this.callChat(
+        CONTEXT_SYSTEM_PROMPT, userMessage, provider, SCAN_MAX_TOKENS, cancelSignal,
+      );
+      return parseContextResponse(stripMarkdownFences(raw));
+    } catch (err) {
+      if (err instanceof TranslationCancelledError) throw err;
+      console.warn('Context scan failed, proceeding without:', err);
+      return new FileContext();
+    }
+  }
 
   private async translateBatch(
     inputBlocks: SubtitleBlock[],
@@ -105,28 +132,45 @@ export class TranslationService {
     targetLang: string,
     provider: ProviderConfig,
     maxRetries: number,
+    fileContext: FileContext,
     cancelSignal?: AbortSignal,
   ): Promise<SubtitleBlock[]> {
     throwIfCancelled(cancelSignal);
-    const batchSrt = serializeSrt(inputBlocks);
-    const body = this.buildRequestBody(
-      sourceLang, targetLang, batchSrt, provider.model, inputBlocks.length,
-    );
-    const url = sanitizeApiUrl(provider.apiUrl);
-    const headers = buildHeaders(sanitizeApiKey(provider.apiKey));
+
+    const canSplit = inputBlocks.length > 1;
+    // Splittable batches give up early — halving resolves persistent count
+    // mismatches faster than more retries on the same payload.
+    const attempts = canSplit ? ATTEMPTS_BEFORE_SPLIT : maxRetries;
     const firstBlockNum = inputBlocks[0].number;
+
+    const batchWire = serializeLite(inputBlocks);
+    const glossary = fileContext.renderForBatch(inputBlocks);
+    const userMessage = buildUserMessage(sourceLang, targetLang, batchWire, glossary);
+    let hitValidationFailure = false;
     let lastError = '';
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    for (let attempt = 1; attempt <= attempts; attempt++) {
       throwIfCancelled(cancelSignal);
       try {
-        const resp = await this.postChat(url, body, headers, cancelSignal);
-        const output = parseSrt(stripMarkdownFences(resp.choices[0].message.content));
+        const raw = await this.callChat(
+          SYSTEM_PROMPT, userMessage, provider,
+          Math.max(inputBlocks.length, 1) * 120, cancelSignal,
+        );
+        let output = parseLite(stripMarkdownFences(raw));
+        // Wire format strips timestamps; reattach positionally.
+        if (output.length === inputBlocks.length) {
+          output = output.map((b, i) => ({
+            number: inputBlocks[i].number,
+            timestamp: inputBlocks[i].timestamp,
+            text: b.text,
+          }));
+        }
         const check = validateBatch(inputBlocks, output);
         if (check.ok) return output;
 
+        hitValidationFailure = true;
         lastError = `validation: ${check.error}`;
-        console.warn(`Batch validation failed (${attempt}/${maxRetries}):`, check.error);
+        console.warn(`Batch validation failed (${attempt}/${attempts}):`, check.error);
 
       } catch (err: unknown) {
         if (err instanceof TranslationCancelledError) {
@@ -137,17 +181,15 @@ export class TranslationService {
         lastError = this.extractServerMessage(err) || (err as Error)?.message || String(err);
 
         console.warn(
-          `Batch request failed (${attempt}/${maxRetries}) [HTTP ${status}]:`,
+          `Batch request failed (${attempt}/${attempts}) [HTTP ${status}]:`,
           lastError,
         );
 
-        // Fail fast on non-retryable errors (bad key, bad request, etc.)
         if (!isRetryableStatus(status)) {
           throw new Error(`HTTP ${status}: ${lastError} (block ${firstBlockNum})`);
         }
 
-        // Rate-limited: exponential backoff before retrying.
-        if (status === 429 && attempt < maxRetries) {
+        if (status === 429 && attempt < attempts) {
           const delay = 2 ** attempt * 1000;
           console.warn(`Rate limited — waiting ${delay / 1000}s...`);
           await sleep(delay, cancelSignal);
@@ -155,15 +197,58 @@ export class TranslationService {
         }
       }
 
-      // Small linear backoff between other retries (1s, 2s, 3s cap).
-      if (attempt < maxRetries) {
+      if (attempt < attempts) {
         await sleep(Math.min(attempt, 3) * 1000, cancelSignal);
       }
     }
 
+    // Recursive split: halve on persistent validation failure. Terminates at
+    // N=1 where count mismatch is impossible.
+    if (hitValidationFailure && canSplit) {
+      const mid = Math.floor(inputBlocks.length / 2);
+      const left = inputBlocks.slice(0, mid);
+      const right = inputBlocks.slice(mid);
+      console.warn(
+        `Batch splitting ${inputBlocks.length} -> ${left.length} + ${right.length} blocks`,
+      );
+      // Sequential: parallel halves would oversubscribe the worker pool slot.
+      const leftResult = await this.translateBatch(
+        left, sourceLang, targetLang, provider, maxRetries, fileContext, cancelSignal,
+      );
+      const rightResult = await this.translateBatch(
+        right, sourceLang, targetLang, provider, maxRetries, fileContext, cancelSignal,
+      );
+      return [...leftResult, ...rightResult];
+    }
+
     throw new Error(
-      `Batch failed all ${maxRetries} retries (block ${firstBlockNum}): ${lastError}`,
+      `Batch failed all ${attempts} retries (block ${firstBlockNum}): ${lastError}`,
     );
+  }
+
+  private async callChat(
+    systemPrompt: string,
+    userMessage: string,
+    provider: ProviderConfig,
+    maxTokens: number,
+    cancelSignal?: AbortSignal,
+  ): Promise<string> {
+    const body: Record<string, unknown> = {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+      temperature: 0.1,
+      max_tokens: Math.max(maxTokens, 1),
+      stream: false,
+      cache_prompt: true,
+    };
+    if (provider.model) body['model'] = provider.model;
+
+    const url = sanitizeApiUrl(provider.apiUrl);
+    const headers = buildHeaders(sanitizeApiKey(provider.apiKey));
+    const resp = await this.postChat(url, body, headers, cancelSignal);
+    return resp.choices[0].message.content;
   }
 
   private postChat(
@@ -210,28 +295,6 @@ export class TranslationService {
     });
   }
 
-  private buildRequestBody(
-    sourceLang: string,
-    targetLang: string,
-    batchSrt: string,
-    model: string,
-    blockCount: number,
-  ): Record<string, unknown> {
-    const body: Record<string, unknown> = {
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: buildUserMessage(sourceLang, targetLang, batchSrt) },
-      ],
-      temperature: 0.1,
-      max_tokens: Math.max(blockCount, 1) * 120,
-      stream: false,
-      cache_prompt: true,
-    };
-    if (model) body['model'] = model;
-    return body;
-  }
-
-  /** Pull a human-readable message out of whatever shape the provider returned. */
   private extractServerMessage(err: unknown): string {
     if (!(err instanceof HttpErrorResponse) || !err.error) return '';
     const body = Array.isArray(err.error) ? err.error[0] : err.error;
@@ -251,13 +314,9 @@ export class TranslationService {
 }
 
 
-// ---------------------------------------------------------------------------
-// HELPERS
-// ---------------------------------------------------------------------------
-
 const CRED_QUERY_PARAMS = ['key', 'api_key', 'apikey', 'access_token'];
 
-/** Drop credential query params like `?key=...` — we authenticate via header. */
+// We authenticate via header, so strip credential query params before sending.
 function sanitizeApiUrl(url: string): string {
   const trimmed = (url ?? '').trim();
   if (!trimmed) return trimmed;
@@ -270,7 +329,6 @@ function sanitizeApiUrl(url: string): string {
   }
 }
 
-/** Strip whitespace, surrounding quotes, and any accidental `Bearer ` prefix. */
 function sanitizeApiKey(key: string): string {
   let k = (key ?? '').trim();
   if ((k.startsWith('"') && k.endsWith('"')) || (k.startsWith("'") && k.endsWith("'"))) {
@@ -286,7 +344,7 @@ function buildHeaders(apiKey: string): Record<string, string> {
   return headers;
 }
 
-/** LLMs sometimes wrap output in ```...``` despite being told not to. */
+// LLMs sometimes wrap output in ```...``` even when told not to.
 function stripMarkdownFences(text: string): string {
   let t = text.trim();
   if (t.startsWith('```')) {
@@ -295,7 +353,6 @@ function stripMarkdownFences(text: string): string {
   return t;
 }
 
-/** Retry on timeout, rate-limit, 5xx, or network errors. Everything else is fatal. */
 function isRetryableStatus(status: number): boolean {
   return status === 0 || status === 408 || status === 429 || status >= 500;
 }

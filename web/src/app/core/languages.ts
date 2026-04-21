@@ -1,14 +1,8 @@
 export interface LanguageOption {
-  /** ISO 639-1 two-letter code — used in output filenames (e.g. movie.ar.srt). */
-  code: string;
-  /** Display name shown in the UI. */
+  code: string; // ISO 639-1, used in output filenames (e.g. movie.ar.srt)
   name: string;
 }
 
-/**
- * Subtitle translation languages, alphabetical by English name.
- * Codes follow ISO 639-1. Defaults are "English" (source) and "Arabic" (target).
- */
 export const LANGUAGES: LanguageOption[] = [
   { code: 'af', name: 'Afrikaans' },
   { code: 'sq', name: 'Albanian' },

@@ -8,48 +8,39 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from core.config import DEFAULT_MAX_RETRIES, TranslationConfig
+from core.config import DEFAULT_MAX_RETRIES, TranslationConfig, _stderr_warn
 from core.batch_runner import FileTranslationError
 from core.time_tracker import format_duration
 from core.lang_codes import lang_code
 from core.translator import translate_file_async
 from core.live_status import Colors, LiveLine, Ticker
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 
 SUBTITLE_EXTS = {".srt", ".vtt", ".ass", ".ssa", ".sub", ".sbv"}
 
 EPILOG = """\
 examples:
-  # Local llama-server (no key needed)
+  # Local OpenAI-compatible server (no key usually needed)
   python translora.py movie.srt -s English -t Arabic \\
     --api-url http://127.0.0.1:8080/v1/chat/completions
 
   # Cloud provider (any OpenAI-compatible endpoint)
   python translora.py movie.srt -s English -t Arabic \\
-    --api-url https://api.openai.com/v1/chat/completions \\
-    --api-key sk-... --model gpt-4.1-mini -c 10
+    --api-url https://<provider>/v1/chat/completions \\
+    --api-key <key> --model <model-name> -c 10
 
   # Translate a whole folder in parallel
   python translora.py ./subs/ -s English -t Arabic \\
     --api-url ... --api-key ... --model ... -c 5 -pf 3
 
-provider endpoints (all OpenAI-compatible):
-  Local:       http://127.0.0.1:8080/v1/chat/completions
-  OpenAI:      https://api.openai.com/v1/chat/completions
-  Groq:        https://api.groq.com/openai/v1/chat/completions
-  DeepSeek:    https://api.deepseek.com/v1/chat/completions
-  OpenRouter:  https://openrouter.ai/api/v1/chat/completions
+Any OpenAI-compatible /v1/chat/completions endpoint works. The port and
+path for local servers vary by tool — check your server's documentation.
 """
 
 
-# Module-level palette — colors auto-disable on non-TTY / NO_COLOR.
 C = Colors()
 
-
-# ---------------------------------------------------------------------------
-# Argument parsing
-# ---------------------------------------------------------------------------
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -61,8 +52,9 @@ def _build_parser() -> argparse.ArgumentParser:
                    version=f"TransLora CLI {__version__}")
     p.add_argument("files", nargs="+", type=Path,
                    help="subtitle files or directories (.srt, .vtt, .ass, ...)")
-    p.add_argument("--source", "-s", required=True,
-                   help="Source language (e.g. English, French, Japanese)")
+    p.add_argument("--source", "-s", default="",
+                   help="Source language (e.g. English, French). "
+                        "Omit to auto-detect — useful for mixed-language batches.")
     p.add_argument("--target", "-t", required=True,
                    help="Target language (e.g. Arabic, Spanish, Korean)")
     p.add_argument("--api-url", required=True, help="LLM API endpoint URL")
@@ -70,28 +62,25 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="API key (default: none — for local servers)")
     p.add_argument("--model", default=None,
                    help="Model name (e.g. gpt-4.1-mini, deepseek-chat)")
-    p.add_argument("--batch-size", type=int, default=15,
-                   help="Subtitle blocks per batch (default: 15)")
+    p.add_argument("--batch-size", type=int, default=10,
+                   help="Subtitle blocks per batch (default: 10)")
     p.add_argument("--concurrency", "-c", type=int, default=1,
-                   help="Parallel batches per file (default: 1)")
+                   help="Parallel batches per file (default: 1, raise for cloud providers)")
     p.add_argument("--parallel-files", "-pf", type=int, default=1,
                    help="Translate this many files at once (default: 1)")
     p.add_argument("--max-retries", type=int, default=DEFAULT_MAX_RETRIES,
                    help=f"Max retries per batch (default: {DEFAULT_MAX_RETRIES})")
     p.add_argument("--force", action="store_true",
                    help="Re-translate even if output already exists")
+    p.add_argument("--verbose", "-v", action="store_true",
+                   help="Show retry/validation warnings (hidden by default)")
     p.add_argument("--output", "-o", type=Path, default=None,
                    help="Output file path (single file only)")
     return p
 
 
-# ---------------------------------------------------------------------------
-# File discovery & output naming
-# ---------------------------------------------------------------------------
-
-
 def _collect_files(paths: list[Path]) -> list[Path]:
-    """Expand user-supplied paths into a flat list of subtitle files."""
+    """Expand paths into a flat list of subtitle files."""
     files: list[Path] = []
     for p in paths:
         if p.is_dir():
@@ -120,7 +109,7 @@ class Job:
 
 
 def _plan_jobs(args, srt_files: list[Path]) -> tuple[list[Job], int]:
-    """Decide which files still need translating. Returns (jobs, skipped)."""
+    """Return (jobs to run, skipped count) based on existing outputs."""
     jobs: list[Job] = []
     skipped = 0
     total = len(srt_files)
@@ -144,16 +133,11 @@ def _plan_jobs(args, srt_files: list[Path]) -> tuple[list[Job], int]:
     return jobs, skipped
 
 
-# ---------------------------------------------------------------------------
-# Parallel execution
-# ---------------------------------------------------------------------------
-
 async def _translate_all(args, jobs: list[Job]) -> tuple[int, list[tuple[Path, str]]]:
-    """Run all translation jobs with the configured parallelism."""
     parallel = max(1, args.parallel_files)
     total_jobs = len(jobs)
-    # With 2+ jobs in flight, per-file live progress can't share the terminal.
-    # Switch translator into quiet mode and drive an overall ticker instead.
+    # Multi-file mode: per-file live progress can't share the terminal, so
+    # suppress per-file output and drive a run-wide ticker instead.
     multi_file = total_jobs > 1
     cfg = TranslationConfig(
         source_lang=args.source,
@@ -165,20 +149,22 @@ async def _translate_all(args, jobs: list[Job]) -> tuple[int, list[tuple[Path, s
         concurrency=args.concurrency,
         max_retries=args.max_retries,
         quiet=multi_file,
+        verbose=args.verbose,
     )
+    if args.verbose:
+        cfg.warn = _stderr_warn
 
     start_time = time.time()
     file_times: list[float] = []
     completed = 0
     failed: list[tuple[Path, str]] = []
 
-    # State used by both the ticker thread and the coroutines. Integer/list
-    # reads are atomic under the GIL — stale ticker data is just cosmetic.
+    # Shared with the ticker thread — atomic reads under the GIL, stale data
+    # is cosmetic.
     live = LiveLine() if multi_file else None
     use_ticker = live is not None and live.enabled
 
-    # Route any batch-level warnings above the ticker line.
-    if live is not None:
+    if live is not None and cfg.verbose:
         cfg.warn = lambda msg: live.println(C.yellow(msg), file=sys.stderr)
 
     def render_ticker() -> None:
@@ -213,8 +199,8 @@ async def _translate_all(args, jobs: list[Job]) -> tuple[int, list[tuple[Path, s
                 elapsed = time.time() - start
                 file_times.append(elapsed)
                 completed += 1
-                # In single-file mode the translator already printed its
-                # completion banner — avoid duplicating it.
+                # Single-file mode already prints a completion banner from
+                # the translator itself — don't duplicate it here.
                 if live is not None:
                     done = completed + len(failed)
                     line = (
@@ -250,10 +236,6 @@ async def _translate_all(args, jobs: list[Job]) -> tuple[int, list[tuple[Path, s
 
     return completed, failed
 
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 def _print_header(jobs_count: int, total_files: int, parallel: int,
                   concurrency: int, skipped: int) -> None:

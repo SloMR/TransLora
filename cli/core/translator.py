@@ -1,9 +1,4 @@
-"""Translate an .srt file end-to-end by sending batches to an LLM chat API.
-
-Pipeline:
-    read file -> parse blocks -> split into batches -> send each batch in
-    parallel -> validate response -> stitch translated batches back together.
-"""
+"""Per-file orchestration: parse, prepass scan, batched translate, stitch."""
 
 from __future__ import annotations
 
@@ -18,12 +13,12 @@ from .srt_parser import SubtitleBlock, split_batches
 from .formats import parse_subtitle
 from .config import DEFAULT_MAX_RETRIES, TranslationConfig
 from .batch_runner import FileTranslationError, translate_batch_with_retry
+from .context_pass import FileContext, extract_file_context
 from .time_tracker import EtaEstimator, format_duration
 from .live_status import Colors, LiveLine, Ticker
 
 
-# Re-exports — callers (translora.py) import these names from translator
-# so they don't need to know the internal module layout.
+# Re-exported so translora.py doesn't need to import from submodules directly.
 __all__ = [
     "DEFAULT_MAX_RETRIES",
     "FileTranslationError",
@@ -38,7 +33,7 @@ async def translate_file_async(
     output_path: Path,
     cfg: TranslationConfig,
 ) -> None:
-    """Translate one .srt file end-to-end.
+    """Translate one subtitle file end-to-end.
 
     Raises FileTranslationError on any batch that exhausts retries.
     """
@@ -58,19 +53,37 @@ async def translate_file_async(
     colors = Colors()
 
     if not cfg.quiet:
+        src_label = cfg.source_lang or "auto"
         print(
             f"{colors.bold('Translating')} {colors.cyan(str(len(doc.blocks)))} blocks "
             f"in {colors.cyan(str(total))} batches "
-            f"{colors.dim(f'({cfg.source_lang} → {cfg.target_lang}, {doc.format})')}"
+            f"{colors.dim(f'({src_label} → {cfg.target_lang}, {doc.format})')}"
         )
         if cfg.concurrency > 1:
             print(colors.dim(f"Concurrency: {cfg.concurrency}"))
 
     started_at = time.time()
-    translated_batches = await _run_batches(batches, cfg, colors, started_at)
+    async with httpx.AsyncClient() as scan_client:
+        if not cfg.quiet:
+            print(colors.dim("  Scanning for cast and context..."))
+        file_context = await extract_file_context(scan_client, doc.blocks, cfg)
+    if not cfg.quiet:
+        if file_context.is_empty():
+            print(colors.dim("  Glossary: empty (proceeding without context hints)"))
+        else:
+            chars = len(file_context.characters)
+            terms = len(file_context.terms)
+            notes = len(file_context.notes)
+            print(colors.dim(
+                f"  Glossary: {chars} character(s), {terms} term(s), {notes} note(s)"
+            ))
+            if file_context.register:
+                print(colors.dim(f"  Register: {file_context.register}"))
 
-    # Stitch in order (they completed out-of-order but `_run_batches` returns
-    # them indexed by their original position).
+    translated_batches = await _run_batches(
+        batches, cfg, colors, started_at, file_context,
+    )
+
     translated: list[SubtitleBlock] = []
     for r in translated_batches:
         translated.extend(r)
@@ -91,31 +104,29 @@ async def _run_batches(
     cfg: TranslationConfig,
     colors: Colors,
     started_at: float,
+    file_context: FileContext | None = None,
 ) -> list[list[SubtitleBlock]]:
-    """Translate every batch with up to `cfg.concurrency` requests in flight.
+    """Translate every batch with up to cfg.concurrency requests in flight.
 
-    Returns results in original batch order. Raises FileTranslationError
-    and cancels remaining work the moment any batch fails fatally.
+    Results are returned in original batch order. A fatal batch failure cancels
+    remaining work.
     """
     total = len(batches)
     results: list[list[SubtitleBlock] | None] = [None] * total
     eta = EtaEstimator(total, cfg.concurrency, started_at)
     semaphore = asyncio.Semaphore(cfg.concurrency)
 
-    # Shared cancellation flag — as soon as any batch fails fatally we stop
-    # scheduling new work rather than wasting retries on doomed batches.
     failure: FileTranslationError | None = None
 
     live = LiveLine() if not cfg.quiet else None
 
-    # Route batch-level retry/error messages above the live line so they don't
-    # get clobbered by the progress refresh.
+    # Route verbose warnings above the live line so the progress refresh
+    # doesn't clobber them. In non-verbose mode warn is a no-op, so leave it.
     original_warn = cfg.warn
-    if live is not None:
+    if live is not None and cfg.verbose:
         cfg.warn = lambda msg: live.println(colors.yellow(msg), file=sys.stderr)
 
-    # Shared with the ticker so the "batch" column keeps showing the last
-    # completed batch's time between completions.
+    # Held between completions so the ticker keeps showing the last batch time.
     last_batch_elapsed = 0.0
 
     def render() -> None:
@@ -138,7 +149,7 @@ async def _run_batches(
                     batch_start = time.time()
                     try:
                         results[idx] = await translate_batch_with_retry(
-                            client, idx, batches[idx], cfg
+                            client, idx, batches[idx], cfg, file_context,
                         )
                     except FileTranslationError as e:
                         failure = e
@@ -159,7 +170,6 @@ async def _run_batches(
     if failure:
         raise failure
 
-    # All slots must be filled now — `failure` would have been raised otherwise.
     return [r for r in results if r is not None]
 
 
@@ -170,7 +180,6 @@ def _render_status(
     batch_elapsed: float,
     eta: EtaEstimator,
 ) -> None:
-    """Draw the single in-place progress line for one batch completion."""
     done = eta.done
     pct = int(100 * done / total) if total else 0
     elapsed = time.time() - eta.start
