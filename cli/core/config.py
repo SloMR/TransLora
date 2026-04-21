@@ -8,7 +8,11 @@ from typing import Callable
 DEFAULT_MAX_RETRIES = 5
 
 
-def _default_warn(msg: str) -> None:
+def _silent_warn(msg: str) -> None:
+    pass
+
+
+def _stderr_warn(msg: str) -> None:
     print(msg, file=sys.stderr)
 
 
@@ -18,7 +22,8 @@ class TranslationConfig:
 
     Bundled so we aren't threading 8+ arguments through every helper.
     `warn` lets callers intercept retry/validation messages so they can be
-    routed around a live progress line instead of clobbering it.
+    routed around a live progress line instead of clobbering it. Default is
+    silent — pass --verbose on the CLI to surface retry/validation chatter.
     """
     source_lang: str  # "" means auto-detect from the text
     target_lang: str
@@ -29,4 +34,5 @@ class TranslationConfig:
     concurrency: int = 1
     max_retries: int = DEFAULT_MAX_RETRIES
     quiet: bool = False
-    warn: Callable[[str], None] = field(default=_default_warn)
+    verbose: bool = False
+    warn: Callable[[str], None] = field(default=_silent_warn)

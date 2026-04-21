@@ -131,9 +131,10 @@ async def _run_batches(
     live = LiveLine() if not cfg.quiet else None
 
     # Route batch-level retry/error messages above the live line so they don't
-    # get clobbered by the progress refresh.
+    # get clobbered by the progress refresh. Only when verbose — otherwise warn
+    # is a no-op and the routing wrapper would undo that.
     original_warn = cfg.warn
-    if live is not None:
+    if live is not None and cfg.verbose:
         cfg.warn = lambda msg: live.println(colors.yellow(msg), file=sys.stderr)
 
     # Shared with the ticker so the "batch" column keeps showing the last

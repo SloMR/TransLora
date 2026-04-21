@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from core.config import DEFAULT_MAX_RETRIES, TranslationConfig
+from core.config import DEFAULT_MAX_RETRIES, TranslationConfig, _stderr_warn
 from core.batch_runner import FileTranslationError
 from core.time_tracker import format_duration
 from core.lang_codes import lang_code
@@ -77,6 +77,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    help=f"Max retries per batch (default: {DEFAULT_MAX_RETRIES})")
     p.add_argument("--force", action="store_true",
                    help="Re-translate even if output already exists")
+    p.add_argument("--verbose", "-v", action="store_true",
+                   help="Show retry/validation warnings (hidden by default)")
     p.add_argument("--output", "-o", type=Path, default=None,
                    help="Output file path (single file only)")
     return p
@@ -162,7 +164,10 @@ async def _translate_all(args, jobs: list[Job]) -> tuple[int, list[tuple[Path, s
         concurrency=args.concurrency,
         max_retries=args.max_retries,
         quiet=multi_file,
+        verbose=args.verbose,
     )
+    if args.verbose:
+        cfg.warn = _stderr_warn
 
     start_time = time.time()
     file_times: list[float] = []
@@ -174,8 +179,9 @@ async def _translate_all(args, jobs: list[Job]) -> tuple[int, list[tuple[Path, s
     live = LiveLine() if multi_file else None
     use_ticker = live is not None and live.enabled
 
-    # Route any batch-level warnings above the ticker line.
-    if live is not None:
+    # Route any batch-level warnings above the ticker line — only when the
+    # user asked for verbose output; otherwise warn stays silent.
+    if live is not None and cfg.verbose:
         cfg.warn = lambda msg: live.println(C.yellow(msg), file=sys.stderr)
 
     def render_ticker() -> None:
