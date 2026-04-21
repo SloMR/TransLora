@@ -75,7 +75,6 @@ async def call_chat_api(
         "temperature": 0.1,
         "max_tokens": max(max_tokens, 1),
         "stream": False,
-        "cache_prompt": True,
     }
     if cfg.model:
         body["model"] = cfg.model

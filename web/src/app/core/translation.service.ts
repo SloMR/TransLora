@@ -241,7 +241,6 @@ export class TranslationService {
       temperature: 0.1,
       max_tokens: Math.max(maxTokens, 1),
       stream: false,
-      cache_prompt: true,
     };
     if (provider.model) body['model'] = provider.model;
 
