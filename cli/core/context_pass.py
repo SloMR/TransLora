@@ -22,10 +22,17 @@ from .srt_parser import SubtitleBlock
 
 
 CONTEXT_SYSTEM_PROMPT = """\
-You analyze a subtitle file before it is translated. Output a compact glossary
-the translator will use to pick correct pronouns and consistent names.
+You analyze a subtitle file before it is translated. Return a compact glossary
+for the translator to use when picking correct pronouns, consistent names, and
+a single consistent register.
 
-Output ONLY this exact tagged format — no commentary, no code fences:
+Your reply MUST start with `<register>` and MUST contain all four sections
+below, in this exact order, with no other text before, between, or after them.
+No commentary. No code fences. No explanations. Tags only.
+
+<register>
+ONE LINE describing the target-language variant and formality the translator should use for the ENTIRE file.
+</register>
 <characters>
 NAME => TARGET_NAME | GENDER
 </characters>
@@ -37,15 +44,22 @@ SOURCE => TARGET
 </notes>
 
 Rules:
+- The <register> line names the specific target-language variant and formality (e.g. "Modern Standard Arabic, neutral", "Brazilian Portuguese, casual", "Simplified Mandarin, neutral", "Japanese, polite です/ます form"). Pick ONE and commit to it for the whole file. Base the choice on the source's tone; default to the standard written form of the target language unless the source is clearly colloquial.
 - GENDER is "male", "female", or "unknown". Use "unknown" only when the text gives no signal at all.
 - TARGET_NAME is how the character's name should appear in the target language (transliterated or localized).
-- Include up to 20 named characters, 10 recurring proper terms or jargon, 4 brief notes on setting/register/tone.
-- Leave a section with just its tags if nothing qualifies.\
+- Include up to 20 named characters, 10 recurring proper terms or jargon, 4 brief notes on setting/tone.
+- Leave a section empty (tags only) if nothing qualifies. Never omit a section.\
 """
+
+# Rough cap on source text sent to the scan. Tuned so small-context models
+# (4k-8k total) still have room for the system prompt, the output, and a
+# safety margin. ~4 chars ≈ 1 token on Latin text.
+_SCAN_CHAR_BUDGET = 12_000
+_SCAN_MAX_TOKENS = 1500
 
 
 _SECTION_RE = re.compile(
-    r"<(?P<tag>characters|terms|notes)>\s*(?P<body>.*?)\s*</(?P=tag)>",
+    r"<(?P<tag>register|characters|terms|notes)>\s*(?P<body>.*?)\s*</(?P=tag)>",
     re.I | re.S,
 )
 
@@ -65,27 +79,30 @@ class TermHint:
 
 @dataclass
 class FileContext:
+    register: str = ""
     characters: list[CharacterHint] = field(default_factory=list)
     terms: list[TermHint] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
     def is_empty(self) -> bool:
-        return not (self.characters or self.terms or self.notes)
+        return not (self.register or self.characters or self.terms or self.notes)
 
     def render_for_batch(self, batch: list[SubtitleBlock]) -> str:
         """Return only the glossary slice relevant to this batch.
 
-        Characters and terms are included only if their source form appears
-        in the batch text. Notes are always included (short, file-wide).
+        Register and notes are always included (short, file-wide). Characters
+        and terms are included only if their source form appears in the batch.
         Returns an empty string when there is nothing worth injecting.
         """
         text = "\n".join(b.text for b in batch)
         chars = [h for h in self.characters if _contains_word(text, h.source)]
         terms = [h for h in self.terms if _contains_word(text, h.source)]
-        if not chars and not terms and not self.notes:
+        if not self.register and not chars and not terms and not self.notes:
             return ""
 
         parts: list[str] = []
+        if self.register:
+            parts.append(f"Target register: {self.register} (use consistently across every block)")
         if chars:
             lines = [f"- {h.source} => {h.target} ({h.gender})" for h in chars]
             parts.append("Characters:\n" + "\n".join(lines))
@@ -105,8 +122,22 @@ def _contains_word(text: str, word: str) -> bool:
 
 
 def serialize_for_scan(blocks: list[SubtitleBlock]) -> str:
-    """Serialize subtitle text for the scan pass — no numbers, no timestamps."""
-    return "\n".join(b.text for b in blocks)
+    """Serialize subtitle text for the scan pass — no numbers, no timestamps.
+
+    For large files we can't fit every block in the scan call, so we stride-
+    sample evenly across the whole file. Sampling preserves each character's
+    chance of appearing at least once in the glossary, regardless of where
+    they're first introduced.
+    """
+    total_chars = sum(len(b.text) + 1 for b in blocks)
+    if total_chars <= _SCAN_CHAR_BUDGET or len(blocks) <= 1:
+        return "\n".join(b.text for b in blocks)
+
+    # Estimate how many blocks fit in the budget, then sample evenly.
+    take_n = max(1, int(len(blocks) * _SCAN_CHAR_BUDGET / total_chars))
+    step = len(blocks) / take_n
+    sampled = [blocks[int(i * step)] for i in range(take_n)]
+    return "\n".join(b.text for b in sampled)
 
 
 def parse_context_response(text: str) -> FileContext:
@@ -115,6 +146,9 @@ def parse_context_response(text: str) -> FileContext:
         m.group("tag").lower(): m.group("body")
         for m in _SECTION_RE.finditer(text or "")
     }
+
+    # Register is free-form but must be a single line; collapse any whitespace.
+    register = " ".join(sections.get("register", "").split()).strip().lstrip("-*• ").strip()
 
     characters: list[CharacterHint] = []
     for line in sections.get("characters", "").splitlines():
@@ -150,6 +184,7 @@ def parse_context_response(text: str) -> FileContext:
             notes.append(line)
 
     return FileContext(
+        register=register,
         characters=characters[:20],
         terms=terms[:10],
         notes=notes[:4],
@@ -175,9 +210,17 @@ async def extract_file_context(
             CONTEXT_SYSTEM_PROMPT,
             user_message,
             cfg,
-            max_tokens=800,
+            max_tokens=_SCAN_MAX_TOKENS,
         )
-        return parse_context_response(strip_markdown_fences(raw))
     except Exception as e:
         cfg.warn(f"    Context scan failed, proceeding without: {e}")
         return FileContext()
+
+    context = parse_context_response(strip_markdown_fences(raw))
+    if context.is_empty():
+        # Diagnostic: show a short snippet of what the model actually returned
+        # so it's obvious whether it ignored the tagged format, truncated, or
+        # refused. Truncated hard to keep noise down.
+        snippet = (raw or "").strip().replace("\n", " ")[:240]
+        cfg.warn(f"    Context scan returned empty glossary. Raw start: {snippet!r}")
+    return context

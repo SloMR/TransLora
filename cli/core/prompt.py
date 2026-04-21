@@ -16,6 +16,7 @@ RULES (violating any = corrupt file):
 - Translate faithfully: profanity, slurs, slang — match the original register.
 - Conversational tone, concise — must fit the original timing.
 - If a glossary is provided, use each character's listed gender when choosing pronouns and verb forms in the target language, and use the listed target-language name consistently.
+- Use ONE consistent register and variant of the target language across every block. Do not switch dialects or formality between batches. If the target language has a standard written form (e.g., Modern Standard Arabic), use it by default unless the source is clearly colloquial.
 
 DO NOT TRANSLATE (copy verbatim):
 - HTML tags, music symbols, formatting tags (\\N, {\\an8})

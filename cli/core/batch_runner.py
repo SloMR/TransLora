@@ -125,21 +125,36 @@ def _build_user_message(
     return f"{header}\n\n{batch_wire}"
 
 
+_ATTEMPTS_BEFORE_SPLIT = 2
+
+
 async def translate_batch_with_retry(
     client: httpx.AsyncClient,
     batch_idx: int,
     batch: list[SubtitleBlock],
     cfg: TranslationConfig,
     file_context: FileContext | None = None,
+    _split_path: str = "",
 ) -> list[SubtitleBlock]:
-    """Translate one batch; retry on transient errors; raise on exhaustion."""
+    """Translate one batch; on repeated validation failure split it in half.
+
+    Persistent count mismatches usually mean the model is deterministically
+    merging two adjacent similar-looking blocks (e.g., repeated reactions
+    like "Oh." / "Oh!"). Splitting gives the model fewer similar blocks to
+    confuse and almost always resolves the merge. We keep halving until we
+    reach single-block batches, which can't have count mismatches.
+    """
     batch_wire = serialize_lite(batch)
     user_msg = _build_user_message(cfg, batch_wire, file_context, batch)
-    label = f"Batch {batch_idx + 1}"
+    label = f"Batch {batch_idx + 1}" + (f".{_split_path}" if _split_path else "")
     first_block = batch[0].number
 
-    for attempt in range(1, cfg.max_retries + 1):
-        tag = f"attempt {attempt}/{cfg.max_retries}"
+    can_split = len(batch) > 1
+    attempts = _ATTEMPTS_BEFORE_SPLIT if can_split else cfg.max_retries
+    hit_validation_failure = False
+
+    for attempt in range(1, attempts + 1):
+        tag = f"attempt {attempt}/{attempts}"
         try:
             raw = await call_chat_api(
                 client, SYSTEM_PROMPT, user_msg, cfg, max(len(batch), 1) * 120,
@@ -156,6 +171,7 @@ async def translate_batch_with_retry(
             check = validate_batch(batch, output)
             if check.ok:
                 return output
+            hit_validation_failure = True
             cfg.warn(f"    {label} validation failed ({tag}): {check.error}")
 
         except httpx.HTTPStatusError as e:
@@ -167,9 +183,9 @@ async def translate_batch_with_retry(
                 raise FileTranslationError(
                     f"{label} (block {first_block}) HTTP {code}: {snippet}"
                 )
-            if code == 429 and attempt < cfg.max_retries:
+            if code == 429 and attempt < attempts:
                 delay = 2 ** attempt
-                cfg.warn(f"    Rate limited — waiting {delay}s...")
+                cfg.warn(f"    Rate limited - waiting {delay}s...")
                 await asyncio.sleep(delay)
                 continue
 
@@ -177,9 +193,29 @@ async def translate_batch_with_retry(
             cfg.warn(f"    {label} request failed ({tag}): {e}")
 
         # Small back-off before the next attempt (1s, 2s, 3s cap).
-        if attempt < cfg.max_retries:
+        if attempt < attempts:
             await asyncio.sleep(min(attempt, 3))
 
+    # All attempts exhausted. If we hit validation errors and can still split,
+    # cut the batch in half and retry each half independently. Otherwise fail.
+    if hit_validation_failure and can_split:
+        mid = len(batch) // 2
+        left, right = batch[:mid], batch[mid:]
+        cfg.warn(
+            f"    {label} splitting {len(batch)} -> {len(left)} + {len(right)} blocks"
+        )
+        left_path = (_split_path + "L") if _split_path else "L"
+        right_path = (_split_path + "R") if _split_path else "R"
+        # Sequential: parallel halves would oversubscribe the outer semaphore's
+        # per-batch slot and starve other batches.
+        left_result = await translate_batch_with_retry(
+            client, batch_idx, left, cfg, file_context, left_path,
+        )
+        right_result = await translate_batch_with_retry(
+            client, batch_idx, right, cfg, file_context, right_path,
+        )
+        return left_result + right_result
+
     raise FileTranslationError(
-        f"{label} (block {first_block}) failed all {cfg.max_retries} retries"
+        f"{label} (block {first_block}) failed all {attempts} retries"
     )

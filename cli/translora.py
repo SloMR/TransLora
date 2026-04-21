@@ -21,25 +21,21 @@ SUBTITLE_EXTS = {".srt", ".vtt", ".ass", ".ssa", ".sub", ".sbv"}
 
 EPILOG = """\
 examples:
-  # Local llama-server (no key needed)
+  # Local OpenAI-compatible server (no key usually needed)
   python translora.py movie.srt -s English -t Arabic \\
     --api-url http://127.0.0.1:8080/v1/chat/completions
 
   # Cloud provider (any OpenAI-compatible endpoint)
   python translora.py movie.srt -s English -t Arabic \\
-    --api-url https://api.openai.com/v1/chat/completions \\
-    --api-key sk-... --model gpt-4.1-mini -c 10
+    --api-url https://<provider>/v1/chat/completions \\
+    --api-key <key> --model <model-name> -c 10
 
   # Translate a whole folder in parallel
   python translora.py ./subs/ -s English -t Arabic \\
     --api-url ... --api-key ... --model ... -c 5 -pf 3
 
-provider endpoints (all OpenAI-compatible):
-  Local:       http://127.0.0.1:8080/v1/chat/completions
-  OpenAI:      https://api.openai.com/v1/chat/completions
-  Groq:        https://api.groq.com/openai/v1/chat/completions
-  DeepSeek:    https://api.deepseek.com/v1/chat/completions
-  OpenRouter:  https://openrouter.ai/api/v1/chat/completions
+Any OpenAI-compatible /v1/chat/completions endpoint works. The port and
+path for local servers vary by tool — check your server's documentation.
 """
 
 

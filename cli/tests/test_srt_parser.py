@@ -85,3 +85,23 @@ def test_validate_batch_timestamp_modified() -> None:
     result = validate_batch(a, b)
     assert not result.ok
     assert "timestamp" in result.error.lower()
+
+
+def test_validate_batch_rejects_empty_output_for_nonempty_input() -> None:
+    a = [
+        SubtitleBlock(1, "00:00:01,000 --> 00:00:02,000", "hi"),
+        SubtitleBlock(2, "00:00:03,000 --> 00:00:04,000", "there"),
+    ]
+    b = [
+        SubtitleBlock(1, "00:00:01,000 --> 00:00:02,000", "hola"),
+        SubtitleBlock(2, "00:00:03,000 --> 00:00:04,000", ""),
+    ]
+    result = validate_batch(a, b)
+    assert not result.ok
+    assert "empty" in result.error.lower()
+
+
+def test_validate_batch_allows_empty_output_for_empty_input() -> None:
+    a = [SubtitleBlock(1, "00:00:01,000 --> 00:00:02,000", "")]
+    b = [SubtitleBlock(1, "00:00:01,000 --> 00:00:02,000", "")]
+    assert validate_batch(a, b).ok

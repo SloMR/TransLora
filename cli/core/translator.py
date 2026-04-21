@@ -72,10 +72,18 @@ async def translate_file_async(
         if not cfg.quiet:
             print(colors.dim("  Scanning for cast and context..."))
         file_context = await extract_file_context(scan_client, doc.blocks, cfg)
-    if not cfg.quiet and not file_context.is_empty():
-        chars = len(file_context.characters)
-        terms = len(file_context.terms)
-        print(colors.dim(f"  Glossary: {chars} character(s), {terms} term(s)"))
+    if not cfg.quiet:
+        if file_context.is_empty():
+            print(colors.dim("  Glossary: empty (proceeding without context hints)"))
+        else:
+            chars = len(file_context.characters)
+            terms = len(file_context.terms)
+            notes = len(file_context.notes)
+            print(colors.dim(
+                f"  Glossary: {chars} character(s), {terms} term(s), {notes} note(s)"
+            ))
+            if file_context.register:
+                print(colors.dim(f"  Register: {file_context.register}"))
 
     translated_batches = await _run_batches(
         batches, cfg, colors, started_at, file_context,

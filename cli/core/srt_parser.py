@@ -138,4 +138,14 @@ def validate_batch(
                 error=f"Timestamp modified at block {inp.number}: expected '{inp.timestamp}', got '{out.timestamp}'",
             )
 
+    # 4. Non-empty input must produce non-empty output. Catches the silent
+    # data-loss case where the model shifts blocks and leaves a tail block blank
+    # while preserving count/numbers/timestamps.
+    for inp, out in zip(input_blocks, output_blocks):
+        if inp.text.strip() and not out.text.strip():
+            return ValidationResult(
+                ok=False,
+                error=f"Empty output at block {inp.number} (input was non-empty)",
+            )
+
     return ValidationResult(ok=True)
