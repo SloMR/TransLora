@@ -17,7 +17,7 @@
 
 ---
 
-Works with any OpenAI-compatible endpoint — local llama.cpp servers, OpenAI, Groq, DeepSeek, OpenRouter, and more.
+Works with any OpenAI-compatible endpoint — local servers, OpenAI, Groq, DeepSeek, OpenRouter, and more.
 
 Two interfaces share the same pipeline:
 
@@ -26,8 +26,10 @@ Two interfaces share the same pipeline:
 
 ## Highlights
 
-- **Batched translation** — sends ~15 subtitle blocks at a time so small models don't drift, skip short lines, or merge split sentences.
-- **Strict validation** — every batch is checked for block count, numbering, and unchanged timestamps; failures retry with back-off.
+- **Batched translation** — sends ~10 subtitle blocks at a time so small models don't drift, skip short lines, or merge split sentences.
+- **Cast & register prepass** — a pre-scan extracts characters, recurring terms, and the written register so every batch translates names and formality consistently.
+- **Strict validation** — every batch is checked for block count, numbering, and unchanged timestamps; failures retry with back-off and recursively split on repeated failure.
+- **Auto-detect source language** — omit the source and the model infers it from the text, so mixed-language batches translate to a single target cleanly.
 - **Any OpenAI-compatible provider** — local or cloud, no vendor lock-in.
 - **Parallelism** — translate many batches per file and many files at once.
 - **Live progress** — per-file progress bars in the web app, an in-place status line (elapsed / ETA / throughput) in the CLI.
@@ -40,7 +42,7 @@ npm install
 ng serve
 ```
 
-Open http://localhost:4200, drop in one or more subtitle files, pick source/target languages and a provider, and download translated files individually or as a ZIP.
+Open http://localhost:4200, drop in one or more subtitle files, pick a target language (source defaults to Auto-detect) and a provider, and download translated files individually or as a ZIP.
 
 ## Command line
 
@@ -49,16 +51,20 @@ cd cli
 
 # Option A — pip
 pip install -r requirements.txt
-python translora.py movie.srt -s English -t Arabic \
+python translora.py movie.srt -t Arabic \
   --api-url http://127.0.0.1:8080/v1/chat/completions
 
 # Option B — uv (faster, auto-manages the venv)
 uv sync
-uv run translora.py movie.srt -s English -t Arabic \
+uv run translora.py movie.srt -t Arabic \
   --api-url http://127.0.0.1:8080/v1/chat/completions
 
-# Cloud provider, whole folder in parallel
-python translora.py ./subs/ -s English -t Arabic \
+# Explicit source language (skip auto-detect)
+python translora.py movie.srt -s English -t Arabic \
+  --api-url http://127.0.0.1:8080/v1/chat/completions
+
+# Cloud provider, whole folder in parallel (source auto-detected per file)
+python translora.py ./subs/ -t Arabic \
   --api-url https://api.openai.com/v1/chat/completions \
   --api-key sk-... --model gpt-4.1-mini -c 10 -pf 3
 ```
@@ -67,28 +73,31 @@ Frequently used flags:
 
 | Flag | Description |
 | --- | --- |
-| `-s, --source` / `-t, --target` | Source and target language names |
+| `-t, --target` | Target language name (required) |
+| `-s, --source` | Source language (optional; omit to auto-detect — useful for mixed-language batches) |
 | `--api-url` | OpenAI-compatible `/v1/chat/completions` endpoint |
 | `--api-key` | API key; use `none` for local servers |
 | `--model` | Model name (optional for local) |
-| `--batch-size` | Subtitle blocks per batch (default **15**) |
-| `-c, --concurrency` | Parallel batches per file (default **1**) |
+| `--batch-size` | Subtitle blocks per batch (default **10**) |
+| `-c, --concurrency` | Parallel batches per file (default **1** — raise for cloud providers) |
 | `-pf, --parallel-files` | Files translated in parallel (default **1**) |
 | `--max-retries` | Retries per batch (default **5**) |
 | `--force` | Re-translate even if the output exists |
+| `-v, --verbose` | Show retry/validation warnings (hidden by default) |
 | `-o, --output` | Output path (single file only) |
 
 Set `NO_COLOR=1` to disable ANSI colors; output auto-falls back to plain lines when piped.
 
 ## How it works
 
-Small and medium LLMs have known failure modes on long subtitle files: skipping one-word blocks (`"Oh!"`, `"Hmm."`), merging sentences split across two blocks for timing, and drifting mid-file. TransLora defends against that with a five-step pipeline:
+Small and medium LLMs have known failure modes on long subtitle files: skipping one-word blocks (`"Oh!"`, `"Hmm."`), merging sentences split across two blocks for timing, drifting mid-file, and switching dialect or formality between batches. TransLora defends against that with a six-step pipeline:
 
 1. Parse the subtitle file into numbered blocks with timestamps (SRT, VTT, ASS, SSA, SBV, SUB).
-2. Split blocks into batches small enough that the model can't drift.
-3. Send each batch with a structure-preserving system prompt.
-4. Validate the response: block count in = out, numbers and timestamps untouched.
-5. Retry failed batches up to `--max-retries` before flagging the file, then stitch the validated batches back in order.
+2. Pre-scan the file with one extra LLM call to extract the cast, recurring terms, and the written register (e.g. Modern Standard Arabic, peninsular Spanish, polite Japanese). The relevant slice is attached to each batch so names and formality stay consistent across the whole file.
+3. Split blocks into batches small enough that the model can't drift.
+4. Send each batch with a structure-preserving system prompt.
+5. Validate the response: block count in = out, numbers and timestamps untouched. Repeated failures recursively split the batch down to singletons before giving up.
+6. Retry failed batches up to `--max-retries` before flagging the file, then stitch the validated batches back in order.
 
 ## Providers
 
@@ -128,7 +137,6 @@ Anything else that speaks the OpenAI chat-completions protocol will work the sam
 ## Roadmap
 
 - Side-by-side preview and per-block editing in the web app
-- Translation memory for character-voice consistency across a file
 - General document/text translation beyond subtitles
 
 ## License
