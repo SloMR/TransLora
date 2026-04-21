@@ -3,8 +3,8 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Subscription } from 'rxjs';
 import {
   SubtitleBlock,
-  parseSrt,
-  serializeSrt,
+  parseLite,
+  serializeLite,
   splitBatches,
   validateBatch,
 } from './srt-parser';
@@ -108,9 +108,9 @@ export class TranslationService {
     cancelSignal?: AbortSignal,
   ): Promise<SubtitleBlock[]> {
     throwIfCancelled(cancelSignal);
-    const batchSrt = serializeSrt(inputBlocks);
+    const batchWire = serializeLite(inputBlocks);
     const body = this.buildRequestBody(
-      sourceLang, targetLang, batchSrt, provider.model, inputBlocks.length,
+      sourceLang, targetLang, batchWire, provider.model, inputBlocks.length,
     );
     const url = sanitizeApiUrl(provider.apiUrl);
     const headers = buildHeaders(sanitizeApiKey(provider.apiKey));
@@ -121,7 +121,15 @@ export class TranslationService {
       throwIfCancelled(cancelSignal);
       try {
         const resp = await this.postChat(url, body, headers, cancelSignal);
-        const output = parseSrt(stripMarkdownFences(resp.choices[0].message.content));
+        let output = parseLite(stripMarkdownFences(resp.choices[0].message.content));
+        // Reattach timestamps from the original input positionally.
+        if (output.length === inputBlocks.length) {
+          output = output.map((b, i) => ({
+            number: inputBlocks[i].number,
+            timestamp: inputBlocks[i].timestamp,
+            text: b.text,
+          }));
+        }
         const check = validateBatch(inputBlocks, output);
         if (check.ok) return output;
 

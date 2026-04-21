@@ -52,6 +52,37 @@ export function serializeSrt(blocks: SubtitleBlock[]): string {
   );
 }
 
+// Wire format sent to the LLM: number + text only. Timestamps are pure noise
+// for the model — it echoes them back, and small models sometimes corrupt a
+// digit. We strip them before sending and reattach from the original input.
+export function serializeLite(blocks: SubtitleBlock[]): string {
+  return blocks.map((b) => `${b.number}\n${b.text}`).join('\n\n') + '\n';
+}
+
+/**
+ * Parse the wire-format response. Timestamps are left empty — callers reattach
+ * them positionally from the original batch.
+ */
+export function parseLite(content: string): SubtitleBlock[] {
+  content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
+
+  const rawBlocks = content.trim().split(/\n\n+/);
+  const blocks: SubtitleBlock[] = [];
+
+  for (const raw of rawBlocks) {
+    const lines = raw.trim().split('\n');
+    if (lines.length < 1) continue;
+
+    const number = parseInt(lines[0].trim(), 10);
+    if (isNaN(number)) continue;
+
+    const text = lines.slice(1).join('\n');
+    blocks.push({ number, timestamp: '', text });
+  }
+  return blocks;
+}
+
 /**
  * Split blocks into batches of the given size.
  */
