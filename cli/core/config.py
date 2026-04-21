@@ -30,7 +30,7 @@ class TranslationConfig:
     api_url: str
     api_key: str
     model: str | None = None
-    batch_size: int = 15
+    batch_size: int = 10
     concurrency: int = 1
     max_retries: int = DEFAULT_MAX_RETRIES
     quiet: bool = False

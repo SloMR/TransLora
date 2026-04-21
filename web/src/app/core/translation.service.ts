@@ -38,7 +38,7 @@ export class TranslationCancelledError extends Error {
 }
 
 export const DEFAULT_MAX_RETRIES = 5;
-export const DEFAULT_BATCH_SIZE = 5;
+export const DEFAULT_BATCH_SIZE = 10;
 export const DEFAULT_CONCURRENCY = 5;
 export const DEFAULT_PARALLEL_FILES = 1;
 

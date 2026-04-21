@@ -67,10 +67,10 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="API key (default: none — for local servers)")
     p.add_argument("--model", default=None,
                    help="Model name (e.g. gpt-4.1-mini, deepseek-chat)")
-    p.add_argument("--batch-size", type=int, default=15,
-                   help="Subtitle blocks per batch (default: 15)")
+    p.add_argument("--batch-size", type=int, default=10,
+                   help="Subtitle blocks per batch (default: 10)")
     p.add_argument("--concurrency", "-c", type=int, default=1,
-                   help="Parallel batches per file (default: 1)")
+                   help="Parallel batches per file (default: 1, raise for cloud providers)")
     p.add_argument("--parallel-files", "-pf", type=int, default=1,
                    help="Translate this many files at once (default: 1)")
     p.add_argument("--max-retries", type=int, default=DEFAULT_MAX_RETRIES,
