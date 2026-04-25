@@ -239,6 +239,34 @@
                         <input id="max-retries" type="number" class="input" min="1" max="20" [ngModel]="maxRetries()" (ngModelChange)="maxRetries.set($event)" />
                         <p class="field-hint">Attempts before failing.</p>
                       </div>
+
+                      <div class="field field-num">
+                        <label class="label" for="scan-budget">Scan budget</label>
+                        <input id="scan-budget" type="number" class="input" min="2000" max="200000" step="1000" [ngModel]="scanBudget()" (ngModelChange)="scanBudget.set($event)" />
+                        <p class="field-hint">Chars sent to the prepass. Lower for tight-context local models, raise for full-file scans on large-context cloud models.</p>
+                      </div>
+
+                      <div class="field field-num">
+                        <label class="label" for="context-overlap">Context overlap</label>
+                        <input id="context-overlap" type="number" class="input" min="0" max="20" [ngModel]="contextOverlap()" (ngModelChange)="contextOverlap.set($event)" />
+                        <p class="field-hint">Previous-batch blocks shown as read-only context. 0 disables.</p>
+                      </div>
+                    </div>
+
+                    <div class="field-toggle">
+                      <label class="toggle">
+                        <input type="checkbox" [checked]="review()" (change)="review.set($any($event.target).checked)" />
+                        <span>Post-edit review pass</span>
+                      </label>
+                      <p class="field-hint">One extra LLM call per batch fixing gender/number/consistency. Doubles cost — disable on metered providers.</p>
+                    </div>
+
+                    <div class="field-toggle">
+                      <label class="toggle">
+                        <input type="checkbox" [checked]="refineAttribution()" (change)="refineAttribution.set($any($event.target).checked)" />
+                        <span>Refine speaker attribution</span>
+                      </label>
+                      <p class="field-hint">One small call per ambiguous scene to fix cross-gender addressee slips.</p>
                     </div>
                   </div>
 

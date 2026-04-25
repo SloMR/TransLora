@@ -485,6 +485,34 @@
   color: var(--text-muted);
 }
 
+.field-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding-top: 0.15rem;
+
+  .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  .toggle input[type='checkbox'] {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--color-primary-strong, var(--border-accent));
+    cursor: pointer;
+  }
+
+  .field-hint {
+    margin-left: 1.55rem;
+  }
+}
+
 .lang-hints {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);

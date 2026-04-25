@@ -8,6 +8,10 @@ import {
   DEFAULT_BATCH_SIZE,
   DEFAULT_CONCURRENCY,
   DEFAULT_PARALLEL_FILES,
+  DEFAULT_CONTEXT_OVERLAP,
+  DEFAULT_SCAN_BUDGET,
+  DEFAULT_REFINE_ATTRIBUTION,
+  DEFAULT_REVIEW,
   TranslationCancelledError,
 } from './core/translation.service';
 import { parseSubtitle } from './core/subtitle-formats';
@@ -28,6 +32,10 @@ const DEFAULTS = {
   concurrency: DEFAULT_CONCURRENCY,
   parallelFiles: DEFAULT_PARALLEL_FILES,
   maxRetries: DEFAULT_MAX_RETRIES,
+  contextOverlap: DEFAULT_CONTEXT_OVERLAP,
+  scanBudget: DEFAULT_SCAN_BUDGET,
+  refineAttribution: DEFAULT_REFINE_ATTRIBUTION,
+  review: DEFAULT_REVIEW,
 };
 
 @Component({
@@ -58,6 +66,10 @@ export class AppComponent implements OnDestroy {
   batchSize = signal(DEFAULTS.batchSize);
   parallelFiles = signal(DEFAULTS.parallelFiles);
   maxRetries = signal(DEFAULTS.maxRetries);
+  contextOverlap = signal(DEFAULTS.contextOverlap);
+  scanBudget = signal(DEFAULTS.scanBudget);
+  refineAttribution = signal(DEFAULTS.refineAttribution);
+  review = signal(DEFAULTS.review);
 
   theme = signal<'light' | 'dark'>('light');
 
@@ -330,6 +342,10 @@ export class AppComponent implements OnDestroy {
     this.concurrency.set(this.currentPreset().defaultConcurrency);
     this.parallelFiles.set(DEFAULTS.parallelFiles);
     this.maxRetries.set(DEFAULTS.maxRetries);
+    this.contextOverlap.set(DEFAULTS.contextOverlap);
+    this.scanBudget.set(DEFAULTS.scanBudget);
+    this.refineAttribution.set(DEFAULTS.refineAttribution);
+    this.review.set(DEFAULTS.review);
   }
 
   swapLanguages() {
@@ -493,6 +509,12 @@ export class AppComponent implements OnDestroy {
           });
         },
         cancelSignal,
+        {
+          contextOverlap: this.contextOverlap(),
+          scanBudget: this.scanBudget(),
+          refineAttribution: this.refineAttribution(),
+          review: this.review(),
+        },
       );
 
       if (cancelSignal.aborted || this.cancelRequested) return;
