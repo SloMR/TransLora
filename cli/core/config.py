@@ -28,6 +28,15 @@ class TranslationConfig:
     batch_size: int = 10
     concurrency: int = 1
     max_retries: int = DEFAULT_MAX_RETRIES
+    # Prepass scan budget (chars). Sized for full-quality scans on typical
+    # TV episodes; lower on tight-context local models (~8k window).
+    scan_char_budget: int = 24_000
+    # Previous-batch source blocks shown as read-only context; 0 disables.
+    context_overlap: int = 2
+    # One small LLM call per ambiguous scene; fixes cross-gender addressee slips.
+    refine_attribution: bool = True
+    # One extra call per batch; fixes gender/number/consistency slips. Doubles cost.
+    review: bool = True
     quiet: bool = False
     verbose: bool = False
     warn: Callable[[str], None] = field(default=_silent_warn)
