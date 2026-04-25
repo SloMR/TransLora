@@ -4,16 +4,18 @@ import JSZip from 'jszip';
 import {
   TranslationService,
   ProviderConfig,
-  DEFAULT_MAX_RETRIES,
-  DEFAULT_BATCH_SIZE,
-  DEFAULT_CONCURRENCY,
-  DEFAULT_PARALLEL_FILES,
-  DEFAULT_CONTEXT_OVERLAP,
-  DEFAULT_SCAN_BUDGET,
-  DEFAULT_REFINE_ATTRIBUTION,
-  DEFAULT_REVIEW,
   TranslationCancelledError,
 } from './core/translation.service';
+import {
+  DEFAULT_BATCH_SIZE,
+  DEFAULT_CONCURRENCY,
+  DEFAULT_CONTEXT_OVERLAP,
+  DEFAULT_MAX_RETRIES,
+  DEFAULT_PARALLEL_FILES,
+  DEFAULT_REFINE_ATTRIBUTION,
+  DEFAULT_REVIEW,
+  DEFAULT_SCAN_BUDGET,
+} from './core/constants';
 import { parseSubtitle } from './core/subtitle-formats';
 import { LANGUAGES } from './core/languages';
 import { PROVIDER_PRESETS, PROVIDER_KEYS } from './core/providers';

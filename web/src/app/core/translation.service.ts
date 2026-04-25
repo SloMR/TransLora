@@ -2,6 +2,39 @@ import { Injectable } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Subscription } from 'rxjs';
 import {
+  ATTEMPTS_BEFORE_SPLIT,
+  CRED_QUERY_PARAMS,
+  DEFAULT_BATCH_SIZE,
+  DEFAULT_CONCURRENCY,
+  DEFAULT_CONTEXT_OVERLAP,
+  DEFAULT_MAX_RETRIES,
+  DEFAULT_REFINE_ATTRIBUTION,
+  DEFAULT_REVIEW,
+  DEFAULT_SCAN_BUDGET,
+  SCAN_MAX_TOKENS,
+} from './constants';
+import {
+  FileContext,
+  enrichScenesWithBlockText,
+  genderMark,
+  needsAttribution,
+  parseAttributionResponse,
+  parseContextResponse,
+  serializeForScan,
+  type CharacterHint,
+  type SceneHint,
+} from './context-pass';
+import {
+  ATTRIBUTION_SYSTEM_PROMPT,
+  CONTEXT_SYSTEM_PROMPT,
+  REVIEW_SYSTEM_PROMPT,
+  SYSTEM_PROMPT,
+  buildAttributionUserMessage,
+  buildReviewUserMessage,
+  buildScanUserMessage,
+  buildUserMessage,
+} from './translation-prompt';
+import {
   SubtitleBlock,
   parseLite,
   serializeLite,
@@ -9,24 +42,6 @@ import {
   validateBatch,
 } from './srt-parser';
 import { SubtitleDocument } from './subtitle-formats/types';
-import {
-  REVIEW_SYSTEM_PROMPT,
-  SYSTEM_PROMPT,
-  buildReviewUserMessage,
-  buildUserMessage,
-} from './translation-prompt';
-import {
-  ATTRIBUTION_SYSTEM_PROMPT,
-  CONTEXT_SYSTEM_PROMPT,
-  FileContext,
-  SCAN_MAX_TOKENS,
-  buildAttributionUserMessage,
-  enrichScenesWithBlockText,
-  needsAttribution,
-  parseAttributionResponse,
-  parseContextResponse,
-  serializeForScan,
-} from './context-pass';
 
 export interface ProviderConfig {
   apiUrl: string;
@@ -46,23 +61,12 @@ export class TranslationCancelledError extends Error {
   }
 }
 
-export const DEFAULT_MAX_RETRIES = 5;
-export const DEFAULT_BATCH_SIZE = 10;
-export const DEFAULT_CONCURRENCY = 5;
-export const DEFAULT_PARALLEL_FILES = 1;
-export const DEFAULT_CONTEXT_OVERLAP = 2;
-export const DEFAULT_REVIEW = true;
-export const DEFAULT_REFINE_ATTRIBUTION = true;
-export const DEFAULT_SCAN_BUDGET = 24_000;
-
 export interface QualityOptions {
   contextOverlap?: number;
   scanBudget?: number;
   refineAttribution?: boolean;
   review?: boolean;
 }
-
-const ATTEMPTS_BEFORE_SPLIT = 2;
 
 type ChatResponse = { choices: { message: { content: string } }[] };
 
@@ -146,12 +150,9 @@ export class TranslationService {
     scanBudget: number,
     cancelSignal?: AbortSignal,
   ): Promise<FileContext> {
-    const sourceLine = sourceLang ? `Source language: ${sourceLang}\n` : '';
-    const userMessage =
-      sourceLine +
-      `Target language: ${targetLang}\n\n` +
-      serializeForScan(blocks, scanBudget);
-
+    const userMessage = buildScanUserMessage(
+      sourceLang, targetLang, serializeForScan(blocks, scanBudget),
+    );
     try {
       const raw = await this.callChat(
         CONTEXT_SYSTEM_PROMPT, userMessage, provider, SCAN_MAX_TOKENS, cancelSignal,
@@ -176,6 +177,7 @@ export class TranslationService {
     const targets = ctx.scenes.filter(needsAttribution);
     if (!targets.length) return;
 
+    const byNum = new Map(blocks.map((b) => [b.number, b]));
     let nextIdx = 0;
     const worker = async () => {
       while (true) {
@@ -184,7 +186,7 @@ export class TranslationService {
         if (i >= targets.length) return;
         const scene = targets[i];
         try {
-          const userMsg = buildAttributionUserMessage(scene, blocks, ctx.characters);
+          const userMsg = buildSceneAttributionMessage(scene, byNum, ctx.characters);
           const raw = await this.callChat(
             ATTRIBUTION_SYSTEM_PROMPT, userMsg, provider,
             (scene.end - scene.start + 1) * 20 + 100, cancelSignal,
@@ -437,7 +439,23 @@ export class TranslationService {
 }
 
 
-const CRED_QUERY_PARAMS = ['key', 'api_key', 'apikey', 'access_token'];
+function buildSceneAttributionMessage(
+  scene: SceneHint,
+  byNum: Map<number, SubtitleBlock>,
+  characters: CharacterHint[],
+): string {
+  const present = new Set(scene.participants);
+  const roster = characters
+    .filter((h) => present.has(h.source))
+    .map((h) => `- ${h.source} (${genderMark(h.gender) || '?'})`)
+    .join('\n');
+  const sceneLines: string[] = [];
+  for (let n = scene.start; n <= scene.end; n++) {
+    const b = byNum.get(n);
+    if (b) sceneLines.push(`[${n}] ${b.text.replace(/\n/g, ' ')}`);
+  }
+  return buildAttributionUserMessage(roster, sceneLines);
+}
 
 // We authenticate via header, so strip credential query params before sending.
 function sanitizeApiUrl(url: string): string {

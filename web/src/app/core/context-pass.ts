@@ -1,44 +1,8 @@
 // One-shot prepass: scans the file once for cast/terms/scenes/register so every
 // batch shares the same glossary. Fails silently to an empty FileContext.
 
+import { ATTRIB_MIN_BLOCKS, MIN_NAME_LEN } from './constants';
 import { SubtitleBlock } from './srt-parser';
-
-export const CONTEXT_SYSTEM_PROMPT = `You analyze a subtitle file before it is translated. Return a compact glossary for the translator to use when picking correct pronouns, consistent names, and a single consistent register.
-
-Input blocks are prefixed with their block number as \`[N] text\`.
-
-Reply with all five sections below in this exact order. No commentary, no fences — tags only.
-
-<register>
-ONE LINE describing the target-language variant and formality.
-</register>
-<characters>
-NAME => TARGET_NAME | GENDER
-</characters>
-<terms>
-SOURCE => TARGET
-</terms>
-<scenes>
-START-END => description that NAMES the characters involved
-</scenes>
-<notes>
-- NOTE
-</notes>
-
-Rules:
-- <register>: name the exact target variant (e.g. "Modern Standard Arabic, neutral", "Brazilian Portuguese, casual", "Japanese, polite です/ます form"). Pick one for the whole file.
-- GENDER is "male", "female", or "unknown". Use "unknown" only when the text gives no signal.
-- TARGET_NAME is how the character's name should appear in the target language.
-- <scenes>: every ≥3-block stretch of dialogue between named characters. Name the characters explicitly using the names from <characters> so the translator can apply the right gender per range. Ranges may touch but must not overlap.
-- Example: \`105-119 => Maria reassures Alex about the interview\` (use the actual names from YOUR <characters> section).
-- Include up to 20 characters, 10 terms, 40 scenes, 4 notes.
-- Leave a section empty (tags only) if nothing qualifies. Never omit a section.`;
-
-export const ATTRIBUTION_SYSTEM_PROMPT = `You identify the speaker of each subtitle line in a short scene. Given a character list and a block-numbered scene excerpt (\`[N] text\`), reply with exactly one line per input block as \`N=SpeakerName\`. SpeakerName MUST be one of the listed characters or the literal "unknown". No commentary, no fences.`;
-
-export const SCAN_MAX_TOKENS = 3000;
-const MIN_NAME_LEN = 3;
-const ATTRIB_MIN_BLOCKS = 3;
 
 export type Gender = 'male' | 'female' | 'unknown';
 
@@ -119,7 +83,7 @@ function scenesOverlapping(scenes: SceneHint[], batch: SubtitleBlock[]): SceneHi
   return scenes.filter((s) => s.end >= first && s.start <= last);
 }
 
-function genderMark(g: Gender | undefined): string {
+export function genderMark(g: Gender | undefined): string {
   return g === 'male' ? 'M' : g === 'female' ? 'F' : '';
 }
 
@@ -333,25 +297,6 @@ export function enrichScenesWithBlockText(
 
 export function needsAttribution(scene: SceneHint): boolean {
   return (scene.end - scene.start + 1) >= ATTRIB_MIN_BLOCKS && scene.participants.length >= 1;
-}
-
-export function buildAttributionUserMessage(
-  scene: SceneHint,
-  blocks: SubtitleBlock[],
-  characters: CharacterHint[],
-): string {
-  const byNum = new Map(blocks.map((b) => [b.number, b]));
-  const present = new Set(scene.participants);
-  const roster = characters
-    .filter((h) => present.has(h.source))
-    .map((h) => `- ${h.source} (${genderMark(h.gender) || '?'})`)
-    .join('\n');
-  const sceneLines: string[] = [];
-  for (let n = scene.start; n <= scene.end; n++) {
-    const b = byNum.get(n);
-    if (b) sceneLines.push(`[${n}] ${b.text.replace(/\n/g, ' ')}`);
-  }
-  return `Characters:\n${roster}\n\nScene:\n${sceneLines.join('\n')}`;
 }
 
 export function parseAttributionResponse(
