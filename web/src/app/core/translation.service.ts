@@ -2,6 +2,39 @@ import { Injectable } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Subscription } from 'rxjs';
 import {
+  ATTEMPTS_BEFORE_SPLIT,
+  CRED_QUERY_PARAMS,
+  DEFAULT_BATCH_SIZE,
+  DEFAULT_CONCURRENCY,
+  DEFAULT_CONTEXT_OVERLAP,
+  DEFAULT_MAX_RETRIES,
+  DEFAULT_REFINE_ATTRIBUTION,
+  DEFAULT_REVIEW,
+  DEFAULT_SCAN_BUDGET,
+  SCAN_MAX_TOKENS,
+} from './constants';
+import {
+  FileContext,
+  enrichScenesWithBlockText,
+  genderMark,
+  needsAttribution,
+  parseAttributionResponse,
+  parseContextResponse,
+  serializeForScan,
+  type CharacterHint,
+  type SceneHint,
+} from './context-pass';
+import {
+  ATTRIBUTION_SYSTEM_PROMPT,
+  CONTEXT_SYSTEM_PROMPT,
+  REVIEW_SYSTEM_PROMPT,
+  SYSTEM_PROMPT,
+  buildAttributionUserMessage,
+  buildReviewUserMessage,
+  buildScanUserMessage,
+  buildUserMessage,
+} from './translation-prompt';
+import {
   SubtitleBlock,
   parseLite,
   serializeLite,
@@ -9,14 +42,6 @@ import {
   validateBatch,
 } from './srt-parser';
 import { SubtitleDocument } from './subtitle-formats/types';
-import { SYSTEM_PROMPT, buildUserMessage } from './translation-prompt';
-import {
-  CONTEXT_SYSTEM_PROMPT,
-  FileContext,
-  SCAN_MAX_TOKENS,
-  parseContextResponse,
-  serializeForScan,
-} from './context-pass';
 
 export interface ProviderConfig {
   apiUrl: string;
@@ -36,12 +61,12 @@ export class TranslationCancelledError extends Error {
   }
 }
 
-export const DEFAULT_MAX_RETRIES = 5;
-export const DEFAULT_BATCH_SIZE = 10;
-export const DEFAULT_CONCURRENCY = 5;
-export const DEFAULT_PARALLEL_FILES = 1;
-
-const ATTEMPTS_BEFORE_SPLIT = 2;
+export interface QualityOptions {
+  contextOverlap?: number;
+  scanBudget?: number;
+  refineAttribution?: boolean;
+  review?: boolean;
+}
 
 type ChatResponse = { choices: { message: { content: string } }[] };
 
@@ -59,15 +84,26 @@ export class TranslationService {
     maxRetries = DEFAULT_MAX_RETRIES,
     onProgress?: (p: TranslationProgress) => void,
     cancelSignal?: AbortSignal,
+    quality: QualityOptions = {},
   ): Promise<string> {
     if (doc.blocks.length === 0) {
       throw new Error('No subtitle blocks found in file');
     }
     throwIfCancelled(cancelSignal);
 
+    const contextOverlap = quality.contextOverlap ?? DEFAULT_CONTEXT_OVERLAP;
+    const scanBudget = quality.scanBudget ?? DEFAULT_SCAN_BUDGET;
+    const refineAttribution = quality.refineAttribution ?? DEFAULT_REFINE_ATTRIBUTION;
+    const review = quality.review ?? DEFAULT_REVIEW;
+
     const fileContext = await this.extractFileContext(
-      doc.blocks, sourceLang, targetLang, provider, cancelSignal,
+      doc.blocks, sourceLang, targetLang, provider, scanBudget, cancelSignal,
     );
+    if (refineAttribution && !fileContext.isEmpty()) {
+      await this.refineSceneAttribution(
+        fileContext, doc.blocks, provider, concurrency, cancelSignal,
+      );
+    }
 
     const batches = splitBatches(doc.blocks, batchSize);
     const results: SubtitleBlock[][] = new Array(batches.length);
@@ -84,8 +120,13 @@ export class TranslationService {
         throwIfCancelled(cancelSignal);
         const i = nextIdx++;
         if (i >= batches.length) return;
+        const prevTail =
+          i > 0 && contextOverlap > 0
+            ? batches[i - 1].slice(-contextOverlap)
+            : [];
         results[i] = await this.translateBatch(
-          batches[i], sourceLang, targetLang, provider, maxRetries, fileContext, cancelSignal,
+          batches[i], sourceLang, targetLang, provider, maxRetries, fileContext,
+          prevTail, contextOverlap, review, cancelSignal,
         );
         completed++;
         emit();
@@ -106,23 +147,92 @@ export class TranslationService {
     sourceLang: string,
     targetLang: string,
     provider: ProviderConfig,
+    scanBudget: number,
     cancelSignal?: AbortSignal,
   ): Promise<FileContext> {
-    const sourceLine = sourceLang ? `Source language: ${sourceLang}\n` : '';
-    const userMessage =
-      sourceLine +
-      `Target language: ${targetLang}\n\n` +
-      serializeForScan(blocks);
-
+    const userMessage = buildScanUserMessage(
+      sourceLang, targetLang, serializeForScan(blocks, scanBudget),
+    );
     try {
       const raw = await this.callChat(
         CONTEXT_SYSTEM_PROMPT, userMessage, provider, SCAN_MAX_TOKENS, cancelSignal,
       );
-      return parseContextResponse(stripMarkdownFences(raw));
+      const ctx = parseContextResponse(stripMarkdownFences(raw));
+      if (ctx.isEmpty()) return ctx;
+      return enrichScenesWithBlockText(ctx, blocks);
     } catch (err) {
       if (err instanceof TranslationCancelledError) throw err;
       console.warn('Context scan failed, proceeding without:', err);
       return new FileContext();
+    }
+  }
+
+  private async refineSceneAttribution(
+    ctx: FileContext,
+    blocks: SubtitleBlock[],
+    provider: ProviderConfig,
+    concurrency: number,
+    cancelSignal?: AbortSignal,
+  ): Promise<void> {
+    const targets = ctx.scenes.filter(needsAttribution);
+    if (!targets.length) return;
+
+    const byNum = new Map(blocks.map((b) => [b.number, b]));
+    let nextIdx = 0;
+    const worker = async () => {
+      while (true) {
+        throwIfCancelled(cancelSignal);
+        const i = nextIdx++;
+        if (i >= targets.length) return;
+        const scene = targets[i];
+        try {
+          const userMsg = buildSceneAttributionMessage(scene, byNum, ctx.characters);
+          const raw = await this.callChat(
+            ATTRIBUTION_SYSTEM_PROMPT, userMsg, provider,
+            (scene.end - scene.start + 1) * 20 + 100, cancelSignal,
+          );
+          scene.attribution = parseAttributionResponse(
+            stripMarkdownFences(raw), scene, ctx.characters,
+          );
+        } catch (err) {
+          if (err instanceof TranslationCancelledError) throw err;
+          console.warn(
+            `Attribution failed for blocks ${scene.start}-${scene.end}:`, err,
+          );
+        }
+      }
+    };
+
+    const workerCount = Math.min(concurrency, targets.length);
+    await Promise.all(Array.from({ length: workerCount }, worker));
+  }
+
+  private async reviewBatch(
+    batch: SubtitleBlock[],
+    firstPass: SubtitleBlock[],
+    glossary: string,
+    provider: ProviderConfig,
+    cancelSignal?: AbortSignal,
+  ): Promise<SubtitleBlock[]> {
+    if (!glossary.trim()) return firstPass;
+    try {
+      const raw = await this.callChat(
+        REVIEW_SYSTEM_PROMPT,
+        buildReviewUserMessage(batch, firstPass, glossary),
+        provider, Math.max(batch.length, 1) * 120, cancelSignal,
+      );
+      const parsed = parseLite(stripMarkdownFences(raw));
+      if (parsed.length !== batch.length) return firstPass;
+      const revised = parsed.map((b, i) => ({
+        number: batch[i].number,
+        timestamp: batch[i].timestamp,
+        text: b.text,
+      }));
+      return validateBatch(batch, revised).ok ? revised : firstPass;
+    } catch (err) {
+      if (err instanceof TranslationCancelledError) throw err;
+      console.warn('Review failed, keeping first-pass:', err);
+      return firstPass;
     }
   }
 
@@ -133,6 +243,9 @@ export class TranslationService {
     provider: ProviderConfig,
     maxRetries: number,
     fileContext: FileContext,
+    prevTail: SubtitleBlock[],
+    contextOverlap: number,
+    review: boolean,
     cancelSignal?: AbortSignal,
   ): Promise<SubtitleBlock[]> {
     throwIfCancelled(cancelSignal);
@@ -145,7 +258,9 @@ export class TranslationService {
 
     const batchWire = serializeLite(inputBlocks);
     const glossary = fileContext.renderForBatch(inputBlocks);
-    const userMessage = buildUserMessage(sourceLang, targetLang, batchWire, glossary);
+    const userMessage = buildUserMessage(
+      sourceLang, targetLang, batchWire, glossary, prevTail,
+    );
     let hitValidationFailure = false;
     let lastError = '';
 
@@ -166,7 +281,14 @@ export class TranslationService {
           }));
         }
         const check = validateBatch(inputBlocks, output);
-        if (check.ok) return output;
+        if (check.ok) {
+          if (review) {
+            output = await this.reviewBatch(
+              inputBlocks, output, glossary, provider, cancelSignal,
+            );
+          }
+          return output;
+        }
 
         hitValidationFailure = true;
         lastError = `validation: ${check.error}`;
@@ -213,10 +335,14 @@ export class TranslationService {
       );
       // Sequential: parallel halves would oversubscribe the worker pool slot.
       const leftResult = await this.translateBatch(
-        left, sourceLang, targetLang, provider, maxRetries, fileContext, cancelSignal,
+        left, sourceLang, targetLang, provider, maxRetries, fileContext,
+        prevTail, contextOverlap, review, cancelSignal,
       );
+      const rightPrev =
+        contextOverlap > 0 ? left.slice(-contextOverlap) : [];
       const rightResult = await this.translateBatch(
-        right, sourceLang, targetLang, provider, maxRetries, fileContext, cancelSignal,
+        right, sourceLang, targetLang, provider, maxRetries, fileContext,
+        rightPrev, contextOverlap, review, cancelSignal,
       );
       return [...leftResult, ...rightResult];
     }
@@ -313,7 +439,23 @@ export class TranslationService {
 }
 
 
-const CRED_QUERY_PARAMS = ['key', 'api_key', 'apikey', 'access_token'];
+function buildSceneAttributionMessage(
+  scene: SceneHint,
+  byNum: Map<number, SubtitleBlock>,
+  characters: CharacterHint[],
+): string {
+  const present = new Set(scene.participants);
+  const roster = characters
+    .filter((h) => present.has(h.source))
+    .map((h) => `- ${h.source} (${genderMark(h.gender) || '?'})`)
+    .join('\n');
+  const sceneLines: string[] = [];
+  for (let n = scene.start; n <= scene.end; n++) {
+    const b = byNum.get(n);
+    if (b) sceneLines.push(`[${n}] ${b.text.replace(/\n/g, ' ')}`);
+  }
+  return buildAttributionUserMessage(roster, sceneLines);
+}
 
 // We authenticate via header, so strip credential query params before sending.
 function sanitizeApiUrl(url: string): string {

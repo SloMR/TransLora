@@ -8,7 +8,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from core.config import DEFAULT_MAX_RETRIES, TranslationConfig, _stderr_warn
+from core.config import TranslationConfig, _stderr_warn
+from core.constants import DEFAULT_MAX_RETRIES
 from core.batch_runner import FileTranslationError
 from core.time_tracker import format_duration
 from core.lang_codes import lang_code
@@ -76,6 +77,23 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="Show retry/validation warnings (hidden by default)")
     p.add_argument("--output", "-o", type=Path, default=None,
                    help="Output file path (single file only)")
+    p.add_argument("--scan-budget", type=int, default=24_000, metavar="CHARS",
+                   help="Character budget for the prepass scan (default: 24000). "
+                        "Tuned for best-quality scans on typical TV episodes; "
+                        "lower on tight-context local models (~8k window), "
+                        "raise on large-context cloud models for full-file scans.")
+    p.add_argument("--context-overlap", type=int, default=2, metavar="N",
+                   help="Source blocks from the previous batch shown as read-only "
+                        "context (default: 2). Helps maintain speaker continuity "
+                        "across batch boundaries. Set to 0 to disable.")
+    p.add_argument("--no-refine-attribution", dest="refine_attribution",
+                   action="store_false", default=True,
+                   help="Disable per-block speaker attribution for mixed-gender "
+                        "scenes (saves one small LLM call per ambiguous scene).")
+    p.add_argument("--no-review", dest="review",
+                   action="store_false", default=True,
+                   help="Disable the post-edit review pass (one extra call per "
+                        "batch that fixes gender/number/consistency slips).")
     return p
 
 
@@ -148,6 +166,10 @@ async def _translate_all(args, jobs: list[Job]) -> tuple[int, list[tuple[Path, s
         batch_size=args.batch_size,
         concurrency=args.concurrency,
         max_retries=args.max_retries,
+        scan_char_budget=args.scan_budget,
+        context_overlap=args.context_overlap,
+        refine_attribution=args.refine_attribution,
+        review=args.review,
         quiet=multi_file,
         verbose=args.verbose,
     )

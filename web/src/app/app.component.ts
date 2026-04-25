@@ -4,12 +4,18 @@ import JSZip from 'jszip';
 import {
   TranslationService,
   ProviderConfig,
-  DEFAULT_MAX_RETRIES,
-  DEFAULT_BATCH_SIZE,
-  DEFAULT_CONCURRENCY,
-  DEFAULT_PARALLEL_FILES,
   TranslationCancelledError,
 } from './core/translation.service';
+import {
+  DEFAULT_BATCH_SIZE,
+  DEFAULT_CONCURRENCY,
+  DEFAULT_CONTEXT_OVERLAP,
+  DEFAULT_MAX_RETRIES,
+  DEFAULT_PARALLEL_FILES,
+  DEFAULT_REFINE_ATTRIBUTION,
+  DEFAULT_REVIEW,
+  DEFAULT_SCAN_BUDGET,
+} from './core/constants';
 import { parseSubtitle } from './core/subtitle-formats';
 import { LANGUAGES } from './core/languages';
 import { PROVIDER_PRESETS, PROVIDER_KEYS } from './core/providers';
@@ -28,6 +34,10 @@ const DEFAULTS = {
   concurrency: DEFAULT_CONCURRENCY,
   parallelFiles: DEFAULT_PARALLEL_FILES,
   maxRetries: DEFAULT_MAX_RETRIES,
+  contextOverlap: DEFAULT_CONTEXT_OVERLAP,
+  scanBudget: DEFAULT_SCAN_BUDGET,
+  refineAttribution: DEFAULT_REFINE_ATTRIBUTION,
+  review: DEFAULT_REVIEW,
 };
 
 @Component({
@@ -58,6 +68,10 @@ export class AppComponent implements OnDestroy {
   batchSize = signal(DEFAULTS.batchSize);
   parallelFiles = signal(DEFAULTS.parallelFiles);
   maxRetries = signal(DEFAULTS.maxRetries);
+  contextOverlap = signal(DEFAULTS.contextOverlap);
+  scanBudget = signal(DEFAULTS.scanBudget);
+  refineAttribution = signal(DEFAULTS.refineAttribution);
+  review = signal(DEFAULTS.review);
 
   theme = signal<'light' | 'dark'>('light');
 
@@ -330,6 +344,10 @@ export class AppComponent implements OnDestroy {
     this.concurrency.set(this.currentPreset().defaultConcurrency);
     this.parallelFiles.set(DEFAULTS.parallelFiles);
     this.maxRetries.set(DEFAULTS.maxRetries);
+    this.contextOverlap.set(DEFAULTS.contextOverlap);
+    this.scanBudget.set(DEFAULTS.scanBudget);
+    this.refineAttribution.set(DEFAULTS.refineAttribution);
+    this.review.set(DEFAULTS.review);
   }
 
   swapLanguages() {
@@ -493,6 +511,12 @@ export class AppComponent implements OnDestroy {
           });
         },
         cancelSignal,
+        {
+          contextOverlap: this.contextOverlap(),
+          scanBudget: this.scanBudget(),
+          refineAttribution: this.refineAttribution(),
+          review: this.review(),
+        },
       );
 
       if (cancelSignal.aborted || this.cancelRequested) return;

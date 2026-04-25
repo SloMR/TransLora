@@ -11,9 +11,10 @@ import httpx
 
 from .srt_parser import SubtitleBlock, split_batches
 from .formats import parse_subtitle
-from .config import DEFAULT_MAX_RETRIES, TranslationConfig
+from .config import TranslationConfig
+from .constants import DEFAULT_MAX_RETRIES
 from .batch_runner import FileTranslationError, translate_batch_with_retry
-from .context_pass import FileContext, extract_file_context
+from .context_pass import FileContext, extract_file_context, refine_scene_attribution
 from .time_tracker import EtaEstimator, format_duration
 from .live_status import Colors, LiveLine, Ticker
 
@@ -66,16 +67,27 @@ async def translate_file_async(
     async with httpx.AsyncClient() as scan_client:
         if not cfg.quiet:
             print(colors.dim("  Scanning for cast and context..."))
-        file_context = await extract_file_context(scan_client, doc.blocks, cfg)
+        file_context = await extract_file_context(
+            scan_client, doc.blocks, cfg,
+        )
+        if cfg.refine_attribution and not file_context.is_empty():
+            if not cfg.quiet:
+                print(colors.dim("  Attributing speakers in mixed-gender scenes..."))
+            await refine_scene_attribution(
+                scan_client, file_context, doc.blocks, cfg,
+            )
     if not cfg.quiet:
         if file_context.is_empty():
             print(colors.dim("  Glossary: empty (proceeding without context hints)"))
         else:
             chars = len(file_context.characters)
             terms = len(file_context.terms)
+            scenes = len(file_context.scenes)
+            attrib = sum(1 for s in file_context.scenes if s.attribution)
             notes = len(file_context.notes)
             print(colors.dim(
-                f"  Glossary: {chars} character(s), {terms} term(s), {notes} note(s)"
+                f"  Glossary: {chars} character(s), {terms} term(s), "
+                f"{scenes} scene(s) ({attrib} attributed), {notes} note(s)"
             ))
             if file_context.register:
                 print(colors.dim(f"  Register: {file_context.register}"))
@@ -97,6 +109,14 @@ async def translate_file_async(
             f"{colors.dim(f'({throughput:.1f} blocks/s)')}"
         )
         print(colors.dim(f"  Output: {output_path}"))
+
+
+def _prev_tail(
+    batches: list[list[SubtitleBlock]], idx: int, overlap: int,
+) -> list[SubtitleBlock]:
+    if idx <= 0 or overlap <= 0:
+        return []
+    return batches[idx - 1][-overlap:]
 
 
 async def _run_batches(
@@ -147,9 +167,11 @@ async def _run_batches(
                     if failure:
                         return
                     batch_start = time.time()
+                    prev_tail = _prev_tail(batches, idx, cfg.context_overlap)
                     try:
                         results[idx] = await translate_batch_with_retry(
                             client, idx, batches[idx], cfg, file_context,
+                            prev_tail=prev_tail,
                         )
                     except FileTranslationError as e:
                         failure = e

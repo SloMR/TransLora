@@ -1,35 +1,8 @@
-// One-shot prepass: scans the file once for cast/terms/register so every batch
-// shares the same glossary. Fails silently to an empty FileContext.
+// One-shot prepass: scans the file once for cast/terms/scenes/register so every
+// batch shares the same glossary. Fails silently to an empty FileContext.
 
+import { ATTRIB_MIN_BLOCKS, MIN_NAME_LEN } from './constants';
 import { SubtitleBlock } from './srt-parser';
-
-export const CONTEXT_SYSTEM_PROMPT = `You analyze a subtitle file before it is translated. Return a compact glossary for the translator to use when picking correct pronouns, consistent names, and a single consistent register.
-
-Your reply MUST start with \`<register>\` and MUST contain all four sections below, in this exact order, with no other text before, between, or after them. No commentary. No code fences. No explanations. Tags only.
-
-<register>
-ONE LINE describing the target-language variant and formality the translator should use for the ENTIRE file.
-</register>
-<characters>
-NAME => TARGET_NAME | GENDER
-</characters>
-<terms>
-SOURCE => TARGET
-</terms>
-<notes>
-- NOTE
-</notes>
-
-Rules:
-- The <register> line names the specific target-language variant and formality (e.g. "Modern Standard Arabic, neutral", "Brazilian Portuguese, casual", "Simplified Mandarin, neutral", "Japanese, polite です/ます form"). Pick ONE and commit to it for the whole file. Base the choice on the source's tone; default to the standard written form of the target language unless the source is clearly colloquial.
-- GENDER is "male", "female", or "unknown". Use "unknown" only when the text gives no signal at all.
-- TARGET_NAME is how the character's name should appear in the target language (transliterated or localized).
-- Include up to 20 named characters, 10 recurring proper terms or jargon, 4 brief notes on setting/tone.
-- Leave a section empty (tags only) if nothing qualifies. Never omit a section.`;
-
-// Sized so small-context models (4k-8k) still have room for prompt + output.
-export const SCAN_CHAR_BUDGET = 12_000;
-export const SCAN_MAX_TOKENS = 1500;
 
 export type Gender = 'male' | 'female' | 'unknown';
 
@@ -44,97 +17,193 @@ export interface TermHint {
   target: string;
 }
 
+export interface SceneHint {
+  start: number;
+  end: number;
+  description: string;
+  participants: string[];
+  attribution: Record<number, string>; // Per-block speaker map (block_number -> character source name).
+}
+
 export class FileContext {
   constructor(
     public register = '',
     public characters: CharacterHint[] = [],
     public terms: TermHint[] = [],
+    public scenes: SceneHint[] = [],
     public notes: string[] = [],
   ) {}
 
   isEmpty(): boolean {
-    return !(this.register || this.characters.length || this.terms.length || this.notes.length);
+    return !(this.register || this.characters.length || this.terms.length
+      || this.scenes.length || this.notes.length);
   }
 
-  // Glossary slice scoped to names/terms present in this batch. Register and
-  // notes are file-wide and always included if set.
+  // Glossary slice scoped to this batch. Register/notes are file-wide.
   renderForBatch(batch: SubtitleBlock[]): string {
     const text = batch.map((b) => b.text).join('\n');
-    const chars = this.characters.filter((h) => containsWord(text, h.source));
-    const terms = this.terms.filter((h) => containsWord(text, h.source));
-    if (!this.register && !chars.length && !terms.length && !this.notes.length) {
+    const scenes = scenesOverlapping(this.scenes, batch);
+    // Include characters named in the batch AND scene participants — the
+    // latter covers speakers who address each other as "you" without
+    // vocatives, so the translator still learns their gender.
+    const sceneNames = new Set<string>(scenes.flatMap((s) => s.participants));
+    const chars = this.characters.filter(
+      (h) => findWord(text, h.source) >= 0 || sceneNames.has(h.source),
+    );
+    const terms = this.terms.filter((h) => findWord(text, h.source) >= 0);
+    if (!this.register && !chars.length && !terms.length && !scenes.length && !this.notes.length) {
       return '';
     }
 
+    const genderBy = new Map(this.characters.map((h) => [h.source.toLowerCase(), h.gender]));
     const parts: string[] = [];
     if (this.register) {
       parts.push(`Target register: ${this.register} (use consistently across every block)`);
     }
     if (chars.length) {
-      const lines = chars.map((h) => `- ${h.source} => ${h.target} (${h.gender})`);
-      parts.push('Characters:\n' + lines.join('\n'));
+      parts.push('Characters:\n' + chars.map((h) => `- ${h.source} => ${h.target} (${h.gender})`).join('\n'));
     }
     if (terms.length) {
-      const lines = terms.map((h) => `- ${h.source} => ${h.target}`);
-      parts.push('Terms:\n' + lines.join('\n'));
+      parts.push('Terms:\n' + terms.map((h) => `- ${h.source} => ${h.target}`).join('\n'));
+    }
+    if (scenes.length) {
+      parts.push(renderScenes(scenes, genderBy));
     }
     if (this.notes.length) {
-      const lines = this.notes.slice(0, 4).map((n) => `- ${n}`);
-      parts.push('Notes:\n' + lines.join('\n'));
+      parts.push('Notes:\n' + this.notes.slice(0, 4).map((n) => `- ${n}`).join('\n'));
     }
     return parts.join('\n\n');
   }
 }
 
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function scenesOverlapping(scenes: SceneHint[], batch: SubtitleBlock[]): SceneHint[] {
+  if (!scenes.length || !batch.length) return [];
+  const first = batch[0].number;
+  const last = batch[batch.length - 1].number;
+  return scenes.filter((s) => s.end >= first && s.start <= last);
 }
 
-function containsWord(text: string, word: string): boolean {
-  if (!word) return false;
-  const re = new RegExp(`(?<!\\w)${escapeRegExp(word)}(?!\\w)`, 'i');
-  return re.test(text);
+export function genderMark(g: Gender | undefined): string {
+  return g === 'male' ? 'M' : g === 'female' ? 'F' : '';
 }
 
-// Stride-samples large files so characters introduced late still have a
-// chance to land in the glossary.
-export function serializeForScan(blocks: SubtitleBlock[]): string {
-  const totalChars = blocks.reduce((sum, b) => sum + b.text.length + 1, 0);
-  if (totalChars <= SCAN_CHAR_BUDGET || blocks.length <= 1) {
-    return blocks.map((b) => b.text).join('\n');
+function renderScenes(scenes: SceneHint[], genderBy: Map<string, Gender>): string {
+  const lines: string[] = [];
+  for (const s of scenes) {
+    const tagged = s.participants.map((n) => {
+      const mark = genderMark(genderBy.get(n.toLowerCase()));
+      return mark ? `${n} (${mark})` : n;
+    }).join(', ');
+    const prefix = `- Blocks ${s.start}-${s.end}:`;
+    lines.push(tagged ? `${prefix} [${tagged}] — ${s.description}` : `${prefix} ${s.description}`);
+    const nums = Object.keys(s.attribution).map(Number).sort((a, b) => a - b);
+    if (nums.length) {
+      lines.push('    speakers: ' + nums.map((n) => `${n}=${s.attribution[n]}`).join(' '));
+    }
   }
+  return (
+    "Scene guidance — each entry applies ONLY to its listed block range. " +
+    "Participants and genders in [brackets]; a 'speakers:' line names the " +
+    "speaker per block so you pick the right gender for the ADDRESSEE:\n" +
+    lines.join('\n')
+  );
+}
 
-  const takeN = Math.max(1, Math.floor((blocks.length * SCAN_CHAR_BUDGET) / totalChars));
+// Case-insensitive whole-word search with Unicode-aware boundaries.
+// Works for Latin, Arabic, CJK, etc. Returns first match index or -1.
+function findWord(text: string, word: string): number {
+  if (!text || !word) return -1;
+  const haystack = text.toLowerCase();
+  const needle = word.toLowerCase();
+  const nlen = needle.length;
+  let i = 0;
+  while (i <= haystack.length - nlen) {
+    const j = haystack.indexOf(needle, i);
+    if (j < 0) return -1;
+    const before = j > 0 ? text[j - 1] : '';
+    const after = j + nlen < text.length ? text[j + nlen] : '';
+    if (!extendsWord(before) && !extendsWord(after)) return j;
+    i = j + 1;
+  }
+  return -1;
+}
+
+function extendsWord(ch: string): boolean {
+  if (!ch) return false;
+  if (ch === '_') return true;
+  return /\p{L}|\p{N}/u.test(ch);
+}
+
+function detectParticipants(text: string, characters: CharacterHint[]): string[] {
+  // Match source AND target forms so descriptions in the target language
+  // still resolve to the canonical source name.
+  const aliases: Array<{ alias: string; name: string }> = [];
+  for (const h of characters) {
+    if (h.source.length >= MIN_NAME_LEN) aliases.push({ alias: h.source, name: h.source });
+    if (h.target !== h.source && h.target.length >= MIN_NAME_LEN) {
+      aliases.push({ alias: h.target, name: h.source });
+    }
+  }
+  aliases.sort((a, b) => b.alias.length - a.alias.length);
+  const firstAt = new Map<string, number>();
+  for (const { alias, name } of aliases) {
+    if (firstAt.has(name)) continue;
+    const idx = findWord(text, alias);
+    if (idx >= 0) firstAt.set(name, idx);
+  }
+  return [...firstAt.entries()].sort((a, b) => a[1] - b[1]).map(([n]) => n);
+}
+
+function formatScanLine(b: SubtitleBlock): string {
+  return `[${b.number}] ${b.text.replace(/\n/g, ' ')}`;
+}
+
+// Stride-samples large files so characters introduced late still land in
+// the glossary.
+export function serializeForScan(
+  blocks: SubtitleBlock[],
+  charBudget: number,
+): string {
+  const total = blocks.reduce((sum, b) => sum + formatScanLine(b).length + 1, 0);
+  if (total <= charBudget || blocks.length <= 1) {
+    return blocks.map(formatScanLine).join('\n');
+  }
+  const takeN = Math.max(1, Math.floor((blocks.length * charBudget) / total));
   const step = blocks.length / takeN;
   const sampled: SubtitleBlock[] = [];
-  for (let i = 0; i < takeN; i++) {
-    sampled.push(blocks[Math.floor(i * step)]);
-  }
-  return sampled.map((b) => b.text).join('\n');
+  for (let i = 0; i < takeN; i++) sampled.push(blocks[Math.floor(i * step)]);
+  return sampled.map(formatScanLine).join('\n');
 }
 
-const SECTION_RE = /<(register|characters|terms|notes)>\s*([\s\S]*?)\s*<\/\1>/gi;
+// Closing tag optional so a truncated reply still parses.
+const SECTION_RE =
+  /<(register|characters|terms|scenes|notes)>\s*([\s\S]*?)\s*(?=<\/\1>|<(?:register|characters|terms|scenes|notes)>|$)/gi;
+const SCENE_RANGE_RE = /^(\d+)\s*(?:-\s*(\d+))?$/;
+const ATTRIB_LINE_RE = /^\s*(\d+)\s*=\s*(.+?)\s*$/;
 
 function stripBullet(line: string): string {
   return line.trim().replace(/^[-*•]\s*/, '').trim();
 }
 
-// Parse tagged response. Tolerates extra whitespace and bullet markers.
+function splitOnce(s: string, sep: string): [string, string] {
+  const i = s.indexOf(sep);
+  return i < 0 ? [s, ''] : [s.slice(0, i), s.slice(i + sep.length)];
+}
+
+// Parse the tagged response. Tolerates whitespace and bullet markers.
 export function parseContextResponse(text: string): FileContext {
   const sections: Record<string, string> = {};
-  const src = text || '';
   SECTION_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
-  while ((m = SECTION_RE.exec(src)) !== null) {
+  while ((m = SECTION_RE.exec(text || '')) !== null) {
     sections[m[1].toLowerCase()] = m[2];
   }
 
-  const rawRegister = sections['register'] ?? '';
-  const register = stripBullet(rawRegister.split(/\s+/).join(' '));
+  const register = stripBullet((sections['register'] ?? '').split(/\s+/).join(' '));
 
   const characters: CharacterHint[] = [];
-  for (const rawLine of (sections['characters'] ?? '').split('\n')) {
-    const line = stripBullet(rawLine);
+  for (const raw of (sections['characters'] ?? '').split('\n')) {
+    const line = stripBullet(raw);
     if (!line || !line.includes('=>')) continue;
     const [srcPart, restPart] = splitOnce(line, '=>');
     let tgt: string, gender: string;
@@ -146,29 +215,42 @@ export function parseContextResponse(text: string): FileContext {
       tgt = restPart.trim();
       gender = 'unknown';
     }
-    const normalizedGender: Gender =
-      gender === 'male' || gender === 'female' ? gender : 'unknown';
-    const src2 = srcPart.trim();
-    if (src2 && tgt) {
-      characters.push({ source: src2, target: tgt, gender: normalizedGender });
-    }
+    const g: Gender = gender === 'male' || gender === 'female' ? gender : 'unknown';
+    const src = srcPart.trim();
+    if (src && tgt) characters.push({ source: src, target: tgt, gender: g });
   }
 
   const terms: TermHint[] = [];
-  for (const rawLine of (sections['terms'] ?? '').split('\n')) {
-    const line = stripBullet(rawLine);
+  for (const raw of (sections['terms'] ?? '').split('\n')) {
+    const line = stripBullet(raw);
     if (!line || !line.includes('=>')) continue;
     const [srcPart, tgtPart] = splitOnce(line, '=>');
-    const src2 = srcPart.trim();
+    const src = srcPart.trim();
     const tgt = tgtPart.trim();
-    if (src2 && tgt) {
-      terms.push({ source: src2, target: tgt });
-    }
+    if (src && tgt) terms.push({ source: src, target: tgt });
+  }
+
+  const scenes: SceneHint[] = [];
+  for (const raw of (sections['scenes'] ?? '').split('\n')) {
+    const line = stripBullet(raw);
+    if (!line || !line.includes('=>')) continue;
+    const [rangePart, descPart] = splitOnce(line, '=>');
+    const desc = descPart.trim();
+    const rm = SCENE_RANGE_RE.exec(rangePart.trim());
+    if (!desc || !rm) continue;
+    let start = parseInt(rm[1], 10);
+    let end = rm[2] ? parseInt(rm[2], 10) : start;
+    if (end < start) [start, end] = [end, start];
+    scenes.push({
+      start, end, description: desc,
+      participants: detectParticipants(desc, characters),
+      attribution: {},
+    });
   }
 
   const notes: string[] = [];
-  for (const rawLine of (sections['notes'] ?? '').split('\n')) {
-    const line = stripBullet(rawLine);
+  for (const raw of (sections['notes'] ?? '').split('\n')) {
+    const line = stripBullet(raw);
     if (line) notes.push(line);
   }
 
@@ -176,12 +258,59 @@ export function parseContextResponse(text: string): FileContext {
     register,
     characters.slice(0, 20),
     terms.slice(0, 10),
+    scenes.slice(0, 80),
     notes.slice(0, 4),
   );
 }
 
-function splitOnce(s: string, sep: string): [string, string] {
-  const i = s.indexOf(sep);
-  if (i < 0) return [s, ''];
-  return [s.slice(0, i), s.slice(i + sep.length)];
+// Reconcile scene participants with what's in the source blocks. Block-text
+// names are primary truth: description-named participants are kept only if
+// grounded in the text; missed block-text names are appended.
+export function enrichScenesWithBlockText(
+  context: FileContext,
+  blocks: SubtitleBlock[],
+): FileContext {
+  if (!context.scenes.length || !context.characters.length) return context;
+  const byNum = new Map(blocks.map((b) => [b.number, b]));
+  const enriched = context.scenes.map((scene) => {
+    const parts: string[] = [];
+    for (let n = scene.start; n <= scene.end; n++) {
+      const b = byNum.get(n);
+      if (b) parts.push(b.text);
+    }
+    const inText = detectParticipants(parts.join('\n'), context.characters);
+    const inTextSet = new Set(inText);
+    const kept = scene.participants.filter((p) => inTextSet.has(p));
+    const seen = new Set(kept);
+    for (const name of inText) {
+      if (!seen.has(name)) {
+        kept.push(name);
+        seen.add(name);
+      }
+    }
+    return { ...scene, participants: kept };
+  });
+  return new FileContext(
+    context.register, context.characters, context.terms, enriched, context.notes,
+  );
+}
+
+export function needsAttribution(scene: SceneHint): boolean {
+  return (scene.end - scene.start + 1) >= ATTRIB_MIN_BLOCKS && scene.participants.length >= 1;
+}
+
+export function parseAttributionResponse(
+  raw: string, scene: SceneHint, characters: CharacterHint[],
+): Record<number, string> {
+  const valid = new Set<string>(characters.map((h) => h.source));
+  valid.add('unknown');
+  const out: Record<number, string> = {};
+  for (const line of (raw || '').split('\n')) {
+    const m = ATTRIB_LINE_RE.exec(line);
+    if (!m) continue;
+    const n = parseInt(m[1], 10);
+    const name = m[2].trim().replace(/^["']|["']$/g, '');
+    if (n >= scene.start && n <= scene.end && valid.has(name)) out[n] = name;
+  }
+  return out;
 }

@@ -8,15 +8,20 @@ from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 import httpx
 
-from .context_pass import FileContext
-from .srt_parser import SubtitleBlock, parse_lite, serialize_lite, validate_batch
 from .config import TranslationConfig
-from .prompt import SYSTEM_PROMPT
-
-
-REQUEST_TIMEOUT_SECS = 120.0
-
-_CRED_QUERY_PARAMS = {"key", "api_key", "apikey", "access_token"}
+from .constants import (
+    ATTEMPTS_BEFORE_SPLIT,
+    CRED_QUERY_PARAMS,
+    REQUEST_TIMEOUT_SECS,
+)
+from .context_pass import FileContext
+from .prompt import (
+    REVIEW_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+    build_review_user_message,
+    build_translate_user_message,
+)
+from .srt_parser import SubtitleBlock, parse_lite, serialize_lite, validate_batch
 
 
 class FileTranslationError(Exception):
@@ -31,7 +36,7 @@ def sanitize_api_url(url: str) -> str:
     try:
         parts = urlsplit(url)
         kept = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
-                if k.lower() not in _CRED_QUERY_PARAMS]
+                if k.lower() not in CRED_QUERY_PARAMS]
         return urlunsplit((parts.scheme, parts.netloc, parts.path,
                            urlencode(kept), parts.fragment))
     except Exception:
@@ -90,24 +95,35 @@ async def call_chat_api(
     return resp.json()["choices"][0]["message"]["content"]
 
 
-def _build_user_message(
-    cfg: TranslationConfig,
-    batch_wire: str,
-    file_context: FileContext | None,
+async def _review_pass(
+    client: httpx.AsyncClient,
     batch: list[SubtitleBlock],
-) -> str:
-    if cfg.source_lang:
-        header = f"Translate from {cfg.source_lang} to {cfg.target_lang}:"
-    else:
-        header = f"Translate to {cfg.target_lang}:"
-    if file_context is not None:
-        ctx = file_context.render_for_batch(batch)
-        if ctx:
-            return f"Glossary for this scene:\n{ctx}\n\n{header}\n\n{batch_wire}"
-    return f"{header}\n\n{batch_wire}"
-
-
-_ATTEMPTS_BEFORE_SPLIT = 2
+    first_pass: list[SubtitleBlock],
+    cfg: TranslationConfig,
+    file_context: FileContext | None,
+) -> list[SubtitleBlock]:
+    """Re-check first-pass against the glossary; returns first-pass unchanged
+    if review output fails validation or there's no glossary to check against."""
+    glossary = file_context.render_for_batch(batch) if file_context else ""
+    if not glossary:
+        return first_pass
+    user_msg = build_review_user_message(batch, first_pass, glossary)
+    try:
+        raw = await call_chat_api(
+            client, REVIEW_SYSTEM_PROMPT, user_msg, cfg, max(len(batch), 1) * 120)
+    except Exception as e:
+        cfg.warn(f"    Review failed, keeping first-pass: {e}")
+        return first_pass
+    parsed = parse_lite(strip_markdown_fences(raw))
+    if len(parsed) != len(batch):
+        return first_pass
+    revised = [
+        SubtitleBlock(number=batch[i].number,
+                      timestamp=batch[i].timestamp,
+                      text=parsed[i].text)
+        for i in range(len(batch))
+    ]
+    return revised if validate_batch(batch, revised).ok else first_pass
 
 
 async def translate_batch_with_retry(
@@ -117,6 +133,7 @@ async def translate_batch_with_retry(
     cfg: TranslationConfig,
     file_context: FileContext | None = None,
     _split_path: str = "",
+    prev_tail: list[SubtitleBlock] | None = None,
 ) -> list[SubtitleBlock]:
     """Translate one batch; on repeated validation failure, halve and recurse.
 
@@ -125,12 +142,15 @@ async def translate_batch_with_retry(
     because at N=1 a count mismatch is impossible.
     """
     batch_wire = serialize_lite(batch)
-    user_msg = _build_user_message(cfg, batch_wire, file_context, batch)
+    glossary = file_context.render_for_batch(batch) if file_context else ""
+    user_msg = build_translate_user_message(
+        cfg.source_lang, cfg.target_lang, batch_wire, glossary, prev_tail or [],
+    )
     label = f"Batch {batch_idx + 1}" + (f".{_split_path}" if _split_path else "")
     first_block = batch[0].number
 
     can_split = len(batch) > 1
-    attempts = _ATTEMPTS_BEFORE_SPLIT if can_split else cfg.max_retries
+    attempts = ATTEMPTS_BEFORE_SPLIT if can_split else cfg.max_retries
     hit_validation_failure = False
 
     for attempt in range(1, attempts + 1):
@@ -149,6 +169,10 @@ async def translate_batch_with_retry(
                 ]
             check = validate_batch(batch, output)
             if check.ok:
+                if cfg.review:
+                    output = await _review_pass(
+                        client, batch, output, cfg, file_context,
+                    )
                 return output
             hit_validation_failure = True
             cfg.warn(f"    {label} validation failed ({tag}): {check.error}")
@@ -185,9 +209,12 @@ async def translate_batch_with_retry(
         # Sequential: parallel halves would oversubscribe the outer semaphore.
         left_result = await translate_batch_with_retry(
             client, batch_idx, left, cfg, file_context, left_path,
+            prev_tail=prev_tail,
         )
+        right_prev = left[-cfg.context_overlap:] if cfg.context_overlap else []
         right_result = await translate_batch_with_retry(
             client, batch_idx, right, cfg, file_context, right_path,
+            prev_tail=right_prev,
         )
         return left_result + right_result
 
