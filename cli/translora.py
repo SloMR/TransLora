@@ -8,7 +8,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from core.config import DEFAULT_MAX_RETRIES, TranslationConfig, _stderr_warn
+from core.config import TranslationConfig, _stderr_warn
+from core.constants import DEFAULT_MAX_RETRIES
 from core.batch_runner import FileTranslationError
 from core.time_tracker import format_duration
 from core.lang_codes import lang_code

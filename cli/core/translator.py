@@ -11,7 +11,8 @@ import httpx
 
 from .srt_parser import SubtitleBlock, split_batches
 from .formats import parse_subtitle
-from .config import DEFAULT_MAX_RETRIES, TranslationConfig
+from .config import TranslationConfig
+from .constants import DEFAULT_MAX_RETRIES
 from .batch_runner import FileTranslationError, translate_batch_with_retry
 from .context_pass import FileContext, extract_file_context, refine_scene_attribution
 from .time_tracker import EtaEstimator, format_duration

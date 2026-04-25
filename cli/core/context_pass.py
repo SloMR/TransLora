@@ -9,55 +9,15 @@ from dataclasses import dataclass, field
 import httpx
 
 from .config import TranslationConfig
+from .constants import ATTRIB_MIN_BLOCKS, MIN_NAME_LEN, SCAN_MAX_TOKENS
+from .prompt import (
+    ATTRIBUTION_SYSTEM_PROMPT,
+    CONTEXT_SYSTEM_PROMPT,
+    build_attribution_user_message,
+    build_scan_user_message,
+)
 from .srt_parser import SubtitleBlock
 
-
-CONTEXT_SYSTEM_PROMPT = """\
-You analyze a subtitle file before it is translated. Return a compact glossary
-for the translator to use when picking correct pronouns, consistent names, and
-a single consistent register.
-
-Input blocks are prefixed with their block number as `[N] text`.
-
-Reply with all five sections below in this exact order. No commentary, no
-fences — tags only.
-
-<register>
-ONE LINE describing the target-language variant and formality.
-</register>
-<characters>
-NAME => TARGET_NAME | GENDER
-</characters>
-<terms>
-SOURCE => TARGET
-</terms>
-<scenes>
-START-END => description that NAMES the characters involved
-</scenes>
-<notes>
-- NOTE
-</notes>
-
-Rules:
-- <register>: name the exact target variant (e.g. "Modern Standard Arabic, neutral", "Brazilian Portuguese, casual", "Japanese, polite です/ます form"). Pick one for the whole file.
-- GENDER is "male", "female", or "unknown". Use "unknown" only when the text gives no signal.
-- TARGET_NAME is how the character's name should appear in the target language.
-- <scenes>: every ≥3-block stretch of dialogue between named characters. Name the characters explicitly using the names from <characters> so the translator can apply the right gender per range. Ranges may touch but must not overlap.
-- Example: `105-119 => Maria reassures Alex about the interview` (use the actual names from YOUR <characters> section).
-- Include up to 20 characters, 10 terms, 40 scenes, 4 notes.
-- Leave a section empty (tags only) if nothing qualifies. Never omit a section.\
-"""
-
-_ATTRIBUTION_SYSTEM_PROMPT = """\
-You identify the speaker of each subtitle line in a short scene. Given a
-character list and a block-numbered scene excerpt (`[N] text`), reply with
-exactly one line per input block as `N=SpeakerName`. SpeakerName MUST be one
-of the listed characters or the literal "unknown". No commentary, no fences.\
-"""
-
-_SCAN_MAX_TOKENS = 3000
-_MIN_NAME_LEN = 3
-_ATTRIB_MIN_BLOCKS = 3
 
 _SECTION_RE = re.compile(
     r"<(?P<tag>register|characters|terms|scenes|notes)>\s*"
@@ -200,9 +160,9 @@ def _detect_participants(
     descriptions often slip into the target language."""
     aliases: list[tuple[str, str]] = []  # (alias, source_name)
     for h in characters:
-        if len(h.source) >= _MIN_NAME_LEN:
+        if len(h.source) >= MIN_NAME_LEN:
             aliases.append((h.source, h.source))
-        if h.target != h.source and len(h.target) >= _MIN_NAME_LEN:
+        if h.target != h.source and len(h.target) >= MIN_NAME_LEN:
             aliases.append((h.target, h.source))
     aliases.sort(key=lambda a: len(a[0]), reverse=True)
 
@@ -309,15 +269,14 @@ async def extract_file_context(
     """Run one scan call. Returns the parsed+enriched context."""
     from .batch_runner import call_chat_api, strip_markdown_fences
 
-    source_line = f"Source language: {cfg.source_lang}\n" if cfg.source_lang else ""
-    user_msg = (
-        f"{source_line}Target language: {cfg.target_lang}\n\n"
-        f"{serialize_for_scan(blocks, cfg.scan_char_budget)}"
+    user_msg = build_scan_user_message(
+        cfg.source_lang, cfg.target_lang,
+        serialize_for_scan(blocks, cfg.scan_char_budget),
     )
     try:
         raw = await call_chat_api(
             client, CONTEXT_SYSTEM_PROMPT, user_msg, cfg,
-            max_tokens=_SCAN_MAX_TOKENS,
+            max_tokens=SCAN_MAX_TOKENS,
         )
     except Exception as e:
         cfg.warn(f"    Context scan failed, proceeding without: {e}")
@@ -358,7 +317,7 @@ def enrich_scenes_with_block_text(
 
 
 def _needs_attribution(scene: SceneHint, gender_by: dict[str, str]) -> bool:
-    return (scene.end - scene.start + 1 >= _ATTRIB_MIN_BLOCKS
+    return (scene.end - scene.start + 1 >= ATTRIB_MIN_BLOCKS
             and len(scene.participants) >= 1)
 
 
@@ -381,10 +340,10 @@ async def _attribute_scene(
     ]
     if not block_lines or not roster:
         return {}
-    user_msg = f"Characters:\n{roster}\n\nScene:\n" + "\n".join(block_lines)
+    user_msg = build_attribution_user_message(roster, block_lines)
     try:
         raw = await call_chat_api(
-            client, _ATTRIBUTION_SYSTEM_PROMPT, user_msg, cfg,
+            client, ATTRIBUTION_SYSTEM_PROMPT, user_msg, cfg,
             max_tokens=len(block_lines) * 20 + 100,
         )
     except Exception as e:

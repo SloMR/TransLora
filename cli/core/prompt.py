@@ -1,4 +1,10 @@
-"""The translation prompts, kept in one place so they can be iterated on."""
+"""All LLM-facing prompts and user-message builders, kept in one place so they
+can be iterated on and reviewed alongside their counterparts."""
+
+from __future__ import annotations
+
+from .srt_parser import SubtitleBlock, serialize_lite
+
 
 SYSTEM_PROMPT = """\
 You are a subtitle translator. You will receive numbered subtitle blocks (no timestamps) and translate them.
@@ -43,3 +49,98 @@ If uncertain, keep the block verbatim. Do NOT rephrase, restyle, or "polish". Sa
 
 Output: same wire format, one blank line between blocks. ALL blocks. No commentary, no fences.\
 """
+
+
+CONTEXT_SYSTEM_PROMPT = """\
+You analyze a subtitle file before it is translated. Return a compact glossary
+for the translator to use when picking correct pronouns, consistent names, and
+a single consistent register.
+
+Input blocks are prefixed with their block number as `[N] text`.
+
+Reply with all five sections below in this exact order. No commentary, no
+fences — tags only.
+
+<register>
+ONE LINE describing the target-language variant and formality.
+</register>
+<characters>
+NAME => TARGET_NAME | GENDER
+</characters>
+<terms>
+SOURCE => TARGET
+</terms>
+<scenes>
+START-END => description that NAMES the characters involved
+</scenes>
+<notes>
+- NOTE
+</notes>
+
+Rules:
+- <register>: name the exact target variant (e.g. "Modern Standard Arabic, neutral", "Brazilian Portuguese, casual", "Japanese, polite です/ます form"). Pick one for the whole file.
+- GENDER is "male", "female", or "unknown". Use "unknown" only when the text gives no signal.
+- TARGET_NAME is how the character's name should appear in the target language.
+- <scenes>: every ≥3-block stretch of dialogue between named characters. Name the characters explicitly using the names from <characters> so the translator can apply the right gender per range. Ranges may touch but must not overlap.
+- Example: `105-119 => Maria reassures Alex about the interview` (use the actual names from YOUR <characters> section).
+- Include up to 20 characters, 10 terms, 40 scenes, 4 notes.
+- Leave a section empty (tags only) if nothing qualifies. Never omit a section.\
+"""
+
+
+ATTRIBUTION_SYSTEM_PROMPT = """\
+You identify the speaker of each subtitle line in a short scene. Given a
+character list and a block-numbered scene excerpt (`[N] text`), reply with
+exactly one line per input block as `N=SpeakerName`. SpeakerName MUST be one
+of the listed characters or the literal "unknown". No commentary, no fences.\
+"""
+
+
+def build_translate_user_message(
+    source_lang: str,
+    target_lang: str,
+    batch_wire: str,
+    glossary: str,
+    prev_tail: list[SubtitleBlock],
+) -> str:
+    header = (
+        f"Translate from {source_lang} to {target_lang}:"
+        if source_lang else f"Translate to {target_lang}:"
+    )
+    sections: list[str] = []
+    if glossary:
+        sections.append(f"Glossary for this scene:\n{glossary}")
+    if prev_tail:
+        # Non-numbered so the parser can't confuse these with real input blocks.
+        prev_lines = "\n".join(
+            f"  [prev #{b.number}] {b.text.replace(chr(10), ' ')}" for b in prev_tail
+        )
+        sections.append(
+            "Previous context (read-only, do NOT translate or output):\n" + prev_lines
+        )
+    sections.append(f"{header}\n\n{batch_wire}")
+    return "\n\n".join(sections)
+
+
+def build_review_user_message(
+    batch: list[SubtitleBlock],
+    first_pass: list[SubtitleBlock],
+    glossary: str,
+) -> str:
+    return (
+        f"Glossary:\n{glossary}\n\n"
+        f"Source blocks:\n{serialize_lite(batch)}\n\n"
+        f"First-pass translation:\n{serialize_lite(first_pass)}\n\n"
+        "Output the corrected translation (same wire format):"
+    )
+
+
+def build_scan_user_message(
+    source_lang: str, target_lang: str, scan_text: str,
+) -> str:
+    source_line = f"Source language: {source_lang}\n" if source_lang else ""
+    return f"{source_line}Target language: {target_lang}\n\n{scan_text}"
+
+
+def build_attribution_user_message(roster: str, block_lines: list[str]) -> str:
+    return f"Characters:\n{roster}\n\nScene:\n" + "\n".join(block_lines)
