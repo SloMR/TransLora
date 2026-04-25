@@ -85,6 +85,12 @@ Frequently used flags:
 | `--force` | Re-translate even if the output exists |
 | `-v, --verbose` | Show retry/validation warnings (hidden by default) |
 | `-o, --output` | Output path (single file only) |
+| `--scan-budget` | Chars sent to the prepass scan (default **24000**). Lower on tight-context local models (~8k window); raise on large-context cloud models for full-file scans. |
+| `--context-overlap` | Previous-batch source blocks shown as read-only context (default **2**, `0` to disable). Helps speaker continuity across batch boundaries. |
+| `--no-review` | Disable the post-edit review pass. Saves one extra LLM call per batch — useful on metered providers. |
+| `--no-refine-attribution` | Disable per-block speaker attribution for mixed-gender scenes (saves one small call per ambiguous scene). |
+
+The defaults are tuned for best translation quality. On metered cloud providers you can pass `--no-review` and/or `--no-refine-attribution` to cut LLM calls. On tight-context local models, lower `--scan-budget` (e.g. `8000`) so the scan prompt fits.
 
 Set `NO_COLOR=1` to disable ANSI colors; output auto-falls back to plain lines when piped.
 
