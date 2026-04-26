@@ -1,0 +1,15 @@
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.venv
+.vscode
+.git
+.gitignore
+tests
+*.md
+Dockerfile*
+.dockerignore
+uv.lock
+**/*.log
