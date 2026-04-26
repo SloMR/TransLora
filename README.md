@@ -94,6 +94,86 @@ The defaults are tuned for best translation quality. On metered cloud providers 
 
 Set `NO_COLOR=1` to disable ANSI colors; output auto-falls back to plain lines when piped.
 
+## Docker
+
+Both interfaces ship with a `Dockerfile` so you can build and run without installing Node, Angular CLI, Python, or any deps locally.
+
+### Web app
+
+```bash
+# from the repo root
+docker build -t translora-web ./web
+docker run --rm -p 8080:80 translora-web
+```
+
+Open http://localhost:8080. The image is a small `nginx:alpine` serving the production Angular build, with SPA-fallback routing pre-configured.
+
+### CLI
+
+**Step 1 — build the image (one time):**
+
+```bash
+# from the repo root
+docker build -t translora-cli ./cli
+```
+
+**Step 2 — translate a file from your disk.**
+
+The image has no idea what's on your computer. To give it access to your subtitle files, you **mount a folder** from your disk into the container with `-v <host-folder>:/work`. Inside the container that folder appears as `/work`, and the CLI runs from there. Anything written to `/work` is written to your real folder — including the translated output.
+
+Picture it like this:
+
+```
+your computer                            inside the container
+──────────────────────────────           ──────────────────────────────
+C:\Users\you\subs\movie.srt    ◀───────▶  /work/movie.srt
+C:\Users\you\subs\movie.ar.srt ◀───────▶  /work/movie.ar.srt   (output)
+                          │
+                          └── -v "C:\Users\you\subs:/work"
+```
+
+So the workflow is: `cd` into the folder containing your subtitle files, then run the container with `-v "$(pwd):/work"`. Pass file names exactly like you would to the local CLI — they resolve relative to `/work` automatically.
+
+**Cloud provider example (OpenAI, OpenRouter, Groq, …):**
+
+```bash
+cd /path/to/your/subtitles    # the folder where movie.srt lives
+
+docker run --rm -v "$(pwd):/work" translora-cli movie.srt -t Arabic \
+  --api-url https://api.openai.com/v1/chat/completions \
+  --api-key sk-... --model gpt-4.1-mini
+```
+
+After this finishes, `movie.ar.srt` appears in the same folder on your disk. You can also pass a folder name to translate everything in it (`docker run ... translora-cli ./ -t Arabic ...`).
+
+**Path syntax cheat sheet for the `-v` flag:**
+
+| Shell | Use |
+|---|---|
+| Linux / macOS / Git Bash | `-v "$(pwd):/work"` |
+| Windows PowerShell | `-v "${PWD}:/work"` |
+| Windows cmd.exe | `-v "%cd%:/work"` |
+
+You can also pass an absolute path explicitly: `-v "C:\Users\you\subs:/work"` (Windows) or `-v "/home/you/subs:/work"` (Linux).
+
+**Local LLM server on your host machine.**
+
+If you're running an LLM server on your own computer (e.g. on `http://127.0.0.1:8080`), `127.0.0.1` from inside the container points at the container itself, not your host. Use `host.docker.internal` instead. On Linux you also need `--add-host=host.docker.internal:host-gateway`:
+
+```bash
+docker run --rm -v "$(pwd):/work" \
+  --add-host=host.docker.internal:host-gateway \
+  translora-cli movie.srt -t Arabic \
+  --api-url http://host.docker.internal:8080/v1/chat/completions
+```
+
+(`--add-host` is harmless on Mac and Windows where Docker Desktop maps `host.docker.internal` automatically — leave it in for cross-platform copy/paste.)
+
+### Notes
+
+- `--rm` deletes the container after it exits so they don't pile up. Drop it if you want to keep the container around for debugging.
+- Both Dockerfiles use BuildKit cache mounts for `npm` and `pip`, so re-builds after a small code change finish in a few seconds.
+
 ## How it works
 
 Small and medium LLMs have known failure modes on long subtitle files: skipping one-word blocks (`"Oh!"`, `"Hmm."`), merging sentences split across two blocks for timing, drifting mid-file, and switching dialect or formality between batches. TransLora defends against that with a six-step pipeline:

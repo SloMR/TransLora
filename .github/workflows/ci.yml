@@ -7,8 +7,29 @@ on:
     branches: [main]
 
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      cli: ${{ steps.filter.outputs.cli }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            web:
+              - 'web/**'
+              - '.github/workflows/ci.yml'
+            cli:
+              - 'cli/**'
+              - '.github/workflows/ci.yml'
+
   cli:
     name: CLI (pytest, ${{ matrix.installer }})
+    needs: changes
+    if: needs.changes.outputs.cli == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -56,6 +77,8 @@ jobs:
 
   web:
     name: Web (Karma)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -71,3 +94,84 @@ jobs:
         run: npm ci
       - name: Run tests
         run: npx ng test --watch=false --browsers=ChromeHeadless
+
+  docker-web:
+    name: Docker (web)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./web
+          load: true
+          tags: translora-web:ci
+          cache-from: type=gha,scope=docker-web
+          cache-to: type=gha,mode=max,scope=docker-web
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          docker run -d --name web-smoke -p 18080:80 translora-web:ci
+          for i in {1..15}; do
+            curl -fsS -o /dev/null http://localhost:18080/ && break
+            sleep 1
+          done
+
+          code=$(curl -s -o /tmp/index.html -w '%{http_code}' http://localhost:18080/)
+          [ "$code" = "200" ] || { echo "GET / returned $code"; exit 1; }
+          grep -q '<title>TransLora</title>' /tmp/index.html
+
+          # SPA fallback: unknown paths should also return 200 + index.html.
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/some/spa/route)
+          [ "$code" = "200" ] || { echo "SPA fallback returned $code"; exit 1; }
+
+          docker rm -f web-smoke
+
+  docker-cli:
+    name: Docker (cli)
+    needs: changes
+    if: needs.changes.outputs.cli == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./cli
+          load: true
+          tags: translora-cli:ci
+          cache-from: type=gha,scope=docker-cli
+          cache-to: type=gha,mode=max,scope=docker-cli
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          docker run --rm translora-cli:ci --version | grep -q 'TransLora CLI'
+          docker run --rm translora-cli:ci --help | grep -q '^usage:'
+
+  # Single status check for branch protection. Passes when every upstream
+  # job either succeeded or was legitimately skipped (path filter). Fails
+  # if any upstream actually failed or was cancelled.
+  ci:
+    name: CI
+    needs: [changes, cli, web, docker-web, docker-cli]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify upstream jobs
+        run: |
+          results='${{ toJson(needs) }}'
+          echo "$results"
+          echo "$results" | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          bad = [name for name, job in data.items()
+                 if job["result"] not in ("success", "skipped")]
+          if bad:
+              print(f"Failing upstream jobs: {bad}", file=sys.stderr)
+              sys.exit(1)
+          print("All upstream jobs OK.")
+          '
