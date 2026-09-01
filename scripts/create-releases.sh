@@ -32,7 +32,7 @@
 #    1. Add its scope(s) to commit_belongs_to_component()
 #    2. Add keyword hints for shared scopes (CI:, Docs:, etc.)
 #    3. Add keyword hints for unscoped commits
-#    4. Optionally add emoji/display name to EMOJI and DISPLAY_NAME
+#    4. Optionally add a case to component_emoji()/component_display_name()
 # ─────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -109,8 +109,25 @@ REPO_URL="${REPO_URL%.git}"
 REPO_URL="${REPO_URL/git@github.com:/https://github.com/}"
 
 # Display metadata per component (add new components here)
-declare -A EMOJI=([web]="🌐" [cli]="🐍")
-declare -A DISPLAY_NAME=([web]="Web" [cli]="CLI")
+component_emoji() {
+    case "$1" in
+    web) echo "🌐" ;;
+    cli) echo "🐍" ;;
+    *) echo "📦" ;;
+    esac
+}
+
+component_display_name() {
+    case "$1" in
+    web) echo "Web" ;;
+    cli) echo "CLI" ;;
+    *) echo "$1" ;;
+    esac
+}
+
+# Caps on how much history one release scans; both are reported when hit.
+MAX_COMMITS=100
+MAX_AUTHOR_COMMITS=500
 
 # ═════════════════════════════════════════════════════════════
 #  AUTHOR HELPERS
@@ -135,18 +152,52 @@ is_bot_author() {
     return 1
 }
 
-# Build author map: email → canonical name + GitHub username
-declare -A AUTHOR_CANONICAL=()
-declare -A AUTHOR_GH_USER=()
-declare -A NAME_TO_EMAIL=()
+# macOS ships bash 3.2, which has no associative arrays: each map is instead a
+# newline-separated list of "key<TAB>value" records.
+# shellcheck disable=SC2034  # read indirectly via ${!1} in map_get/map_set
+AUTHOR_CANONICAL="" # email -> canonical name
+# shellcheck disable=SC2034
+AUTHOR_GH_USER=""   # email -> GitHub username
+# shellcheck disable=SC2034
+NAME_TO_EMAIL=""    # name  -> email
+
+# map_get <map-var-name> <key> — prints the value, or nothing if absent.
+map_get() {
+    local key="$2" k v
+    while IFS=$'\t' read -r k v; do
+        if [[ "$k" == "$key" ]]; then
+            printf '%s' "$v"
+            return 0
+        fi
+    done <<<"${!1}"
+    return 0
+}
+
+# map_set <map-var-name> <key> <value> — inserts or replaces.
+map_set() {
+    local key="$2" value="$3" out="" k v
+    while IFS=$'\t' read -r k v; do
+        [[ -z "$k" || "$k" == "$key" ]] && continue
+        out+="${k}"$'\t'"${v}"$'\n'
+    done <<<"${!1}"
+    out+="${key}"$'\t'"${value}"$'\n'
+    printf -v "$1" '%s' "$out"
+}
 
 build_author_map() {
     local range="$1" fallback="${2:-}"
-    local log_data
+    local log_data total
     if [[ -n "$range" ]]; then
-        log_data=$(git log --format="%an|%ae" --no-merges "$range" 2>/dev/null | head -500)
+        log_data=$(git log --format="%an|%ae" --no-merges "$range" 2>/dev/null)
     else
-        log_data=$(git log --format="%an|%ae" --no-merges "$fallback" 2>/dev/null | head -500)
+        log_data=$(git log --format="%an|%ae" --no-merges "$fallback" 2>/dev/null)
+    fi
+
+    total=$(printf '%s\n' "$log_data" | grep -c '[^[:space:]]' || true)
+    if [[ $total -gt $MAX_AUTHOR_COMMITS ]]; then
+        echo "ℹ️  ${total} commits in range — scanning the newest ${MAX_AUTHOR_COMMITS} for contributor identities." >&2
+        # sed, not `head`: head closes the pipe early and pipefail turns the SIGPIPE into an abort.
+        log_data=$(printf '%s\n' "$log_data" | sed -n "1,${MAX_AUTHOR_COMMITS}p")
     fi
 
     while IFS= read -r entry; do
@@ -157,39 +208,43 @@ build_author_map() {
         is_bot_author "$name" "$email" && continue
 
         # Keep the longest name per email as canonical
-        local existing="${AUTHOR_CANONICAL[$email]:-}"
+        local existing
+        existing=$(map_get AUTHOR_CANONICAL "$email")
         if [[ -z "$existing" ]] || [[ ${#name} -gt ${#existing} ]]; then
-            AUTHOR_CANONICAL[$email]="$name"
+            map_set AUTHOR_CANONICAL "$email" "$name"
         fi
 
         # Extract GitHub username from noreply: 12345+user@users.noreply.github.com
         if [[ "$email" == *"@users.noreply.github.com" ]]; then
             local gh_user
             gh_user=$(echo "$email" | sed -E 's/^[0-9]+\+//' | sed 's/@users\.noreply\.github\.com$//')
-            [[ -n "$gh_user" ]] && AUTHOR_GH_USER[$email]="$gh_user"
+            [[ -n "$gh_user" ]] && map_set AUTHOR_GH_USER "$email" "$gh_user"
         fi
 
-        NAME_TO_EMAIL["$name"]="$email"
+        map_set NAME_TO_EMAIL "$name" "$email"
     done <<<"$log_data"
 }
 
 normalize_author() {
-    local author="$1"
-    is_bot_author "$author" "${NAME_TO_EMAIL[$author]:-}" && {
+    local author="$1" email canonical
+    email=$(map_get NAME_TO_EMAIL "$author")
+    is_bot_author "$author" "$email" && {
         echo ""
         return
     }
-    local email="${NAME_TO_EMAIL[$author]:-}"
     if [[ -n "$email" ]]; then
-        echo "${AUTHOR_CANONICAL[$email]:-$author}"
+        canonical=$(map_get AUTHOR_CANONICAL "$email")
+        echo "${canonical:-$author}"
     else
         echo "$author"
     fi
 }
 
 author_github_username() {
-    local email="${NAME_TO_EMAIL[$1]:-}"
-    [[ -n "$email" ]] && echo "${AUTHOR_GH_USER[$email]:-}" || echo ""
+    local email
+    email=$(map_get NAME_TO_EMAIL "$1")
+    [[ -z "$email" ]] && return 0
+    map_get AUTHOR_GH_USER "$email"
 }
 
 # ═════════════════════════════════════════════════════════════
@@ -198,8 +253,12 @@ author_github_username() {
 
 # Keywords that identify a commit as belonging to a specific component.
 # Used for shared scopes (CI:, Docs:, etc.) and unscoped commits.
-has_web_keywords() { [[ "$1" == *"node"* || "$1" == *"npm"* || "$1" == *"angular"* || "$1" == *"web"* || "$1" == *"client"* || "$1" == *"typescript"* || "$1" == *" ts "* || "$1" == *"scss"* || "$1" == *" css "* || "$1" == *"html"* || "$1" == *"browser"* || "$1" == *"chrome"* || "$1" == *"eslint"* || "$1" == *"prettier"* || "$1" == *"jszip"* || "$1" == *"favicon"* || "$1" == *"component"* || "$1" == *"service"* || "$1" == *"signal"* || "$1" == *"inter font"* ]]; }
-has_cli_keywords() { [[ "$1" == *"python"* || "$1" == *"cli"* || "$1" == *"translora"* || "$1" == *"pip"* || "$1" == *"httpx"* || "$1" == *"terminal"* || "$1" == *"asyncio"* || "$1" == *"srt_parser"* || "$1" == *"translator.py"* || "$1" == *"batch_runner"* || "$1" == *"live_status"* || "$1" == *"time_tracker"* || "$1" == *"lang_codes"* ]]; }
+# Word boundaries, not substrings: "cli" matched "client", "pip" matched "pipeline".
+WEB_KEYWORDS_RE='(^|[^a-z])(node|npm|angular|web|webapp|client|typescript|ts|scss|css|html|browser|chrome|eslint|prettier|jszip|favicon|component|service|signal|inter font)([^a-z]|$)'
+CLI_KEYWORDS_RE='(^|[^a-z])(python|cli|translora|pip|httpx|terminal|asyncio|srt_parser|translator\.py|batch_runner|live_status|time_tracker|languages)([^a-z]|$)'
+
+has_web_keywords() { [[ "$1" =~ $WEB_KEYWORDS_RE ]]; }
+has_cli_keywords() { [[ "$1" =~ $CLI_KEYWORDS_RE ]]; }
 
 # Returns 0 if commit belongs to the component, 1 if not
 commit_belongs_to_component() {
@@ -385,7 +444,8 @@ clean_message() {
 
 build_release_body() {
     local TAG="$1" PREV_TAG="$2" COMPONENT="$3" VERSION="$4"
-    local NAME="${DISPLAY_NAME[$COMPONENT]:-$COMPONENT}"
+    local NAME
+    NAME=$(component_display_name "$COMPONENT")
 
     # Build author identity map
     if [[ -n "$PREV_TAG" ]]; then
@@ -395,17 +455,23 @@ build_release_body() {
     fi
 
     # Collect commits
-    local COMMITS
+    local COMMITS COMMIT_TOTAL OMITTED=0
     if [[ -n "$PREV_TAG" ]]; then
-        COMMITS=$(git log --format="%H|%h|%s|%an" --no-merges "${PREV_TAG}..${TAG}" 2>/dev/null | head -100)
+        COMMITS=$(git log --format="%H|%h|%s|%an" --no-merges "${PREV_TAG}..${TAG}" 2>/dev/null)
     else
-        COMMITS=$(git log --format="%H|%h|%s|%an" --no-merges "$TAG" 2>/dev/null | head -100)
+        COMMITS=$(git log --format="%H|%h|%s|%an" --no-merges "$TAG" 2>/dev/null)
+    fi
+    COMMIT_TOTAL=$(printf '%s\n' "$COMMITS" | grep -c '[^[:space:]]' || true)
+    if [[ $COMMIT_TOTAL -gt $MAX_COMMITS ]]; then
+        OMITTED=$((COMMIT_TOTAL - MAX_COMMITS))
+        echo "ℹ️  ${TAG}: ${COMMIT_TOTAL} commits in range — listing the newest ${MAX_COMMITS}, ${OMITTED} omitted." >&2
+        COMMITS=$(printf '%s\n' "$COMMITS" | sed -n "1,${MAX_COMMITS}p")
     fi
 
     # Category arrays
     local -a FEATURES=() FIXES=() PERF=() SECURITY=() UI_CHANGES=()
     local -a REFACTORS=() DOCS=() TESTS=() CI_CD=() CHORES=() STYLE=() REVERT=() OTHER=()
-    local -A CONTRIBUTORS=()
+    local CONTRIBUTORS=""
 
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
@@ -442,7 +508,7 @@ build_release_body() {
 
         local NORM_AUTHOR
         NORM_AUTHOR=$(normalize_author "$AUTHOR")
-        [[ -n "$NORM_AUTHOR" ]] && CONTRIBUTORS["$NORM_AUTHOR"]=1
+        [[ -n "$NORM_AUTHOR" ]] && CONTRIBUTORS+="${NORM_AUTHOR}"$'\n'
     done <<<"$COMMITS"
 
     # Assemble markdown
@@ -451,27 +517,27 @@ build_release_body() {
     emit_section() {
         local title="$1"
         shift
-        local -a items=("$@")
-        if [[ ${#items[@]} -gt 0 ]]; then
-            BODY+="### ${title}"$'\n\n'
-            for entry in "${items[@]}"; do BODY+="${entry}"$'\n'; done
-            BODY+=$'\n'
-        fi
+        if [[ $# -eq 0 ]]; then return 0; fi
+        BODY+="### ${title}"$'\n\n'
+        local entry
+        for entry in "$@"; do BODY+="${entry}"$'\n'; done
+        BODY+=$'\n'
     }
 
-    emit_section "🚀 Features" "${FEATURES[@]}"
-    emit_section "🐛 Bug Fixes" "${FIXES[@]}"
-    emit_section "⚡ Performance" "${PERF[@]}"
-    emit_section "🔒 Security" "${SECURITY[@]}"
-    emit_section "🎨 UI & Design" "${UI_CHANGES[@]}"
-    emit_section "♻️ Refactoring" "${REFACTORS[@]}"
-    emit_section "📝 Documentation" "${DOCS[@]}"
-    emit_section "🧪 Tests" "${TESTS[@]}"
-    emit_section "🔧 CI/CD" "${CI_CD[@]}"
-    emit_section "📦 Dependencies" "${CHORES[@]}"
-    emit_section "💅 Code Style" "${STYLE[@]}"
-    emit_section "⏪ Reverts" "${REVERT[@]}"
-    emit_section "📌 Other" "${OTHER[@]}"
+    # ${arr[@]+...}: a plain "${arr[@]}" on an empty array aborts under set -u on bash 3.2.
+    emit_section "🚀 Features" ${FEATURES[@]+"${FEATURES[@]}"}
+    emit_section "🐛 Bug Fixes" ${FIXES[@]+"${FIXES[@]}"}
+    emit_section "⚡ Performance" ${PERF[@]+"${PERF[@]}"}
+    emit_section "🔒 Security" ${SECURITY[@]+"${SECURITY[@]}"}
+    emit_section "🎨 UI & Design" ${UI_CHANGES[@]+"${UI_CHANGES[@]}"}
+    emit_section "♻️ Refactoring" ${REFACTORS[@]+"${REFACTORS[@]}"}
+    emit_section "📝 Documentation" ${DOCS[@]+"${DOCS[@]}"}
+    emit_section "🧪 Tests" ${TESTS[@]+"${TESTS[@]}"}
+    emit_section "🔧 CI/CD" ${CI_CD[@]+"${CI_CD[@]}"}
+    emit_section "📦 Dependencies" ${CHORES[@]+"${CHORES[@]}"}
+    emit_section "💅 Code Style" ${STYLE[@]+"${STYLE[@]}"}
+    emit_section "⏪ Reverts" ${REVERT[@]+"${REVERT[@]}"}
+    emit_section "📌 Other" ${OTHER[@]+"${OTHER[@]}"}
 
     local TOTAL=$((${#FEATURES[@]} + ${#FIXES[@]} + ${#PERF[@]} + ${#SECURITY[@]} + \
         ${#UI_CHANGES[@]} + ${#REFACTORS[@]} + ${#DOCS[@]} + ${#TESTS[@]} + ${#CI_CD[@]} + \
@@ -481,21 +547,24 @@ build_release_body() {
         BODY+="*Initial release of ${NAME}.*"$'\n\n'
     fi
 
+    if [[ $OMITTED -gt 0 ]]; then
+        BODY+="_${OMITTED} older commit(s) are not listed above — see the full changelog below._"$'\n\n'
+    fi
+
     # Contributors
-    if [[ ${#CONTRIBUTORS[@]} -gt 0 ]]; then
+    local sorted_authors author gh_user
+    sorted_authors=$(printf '%s' "$CONTRIBUTORS" | grep -v '^[[:space:]]*$' | sort -u || true)
+    if [[ -n "$sorted_authors" ]]; then
         BODY+="---"$'\n\n'
         BODY+="### 👥 Contributors"$'\n\n'
-        local -a sorted_authors=()
-        mapfile -t sorted_authors < <(printf '%s\n' "${!CONTRIBUTORS[@]}" | sort)
-        for author in "${sorted_authors[@]}"; do
-            local gh_user
+        while IFS= read -r author; do
             gh_user=$(author_github_username "$author")
             if [[ -n "$gh_user" ]]; then
                 BODY+="* **${author}** (@${gh_user})"$'\n'
             else
                 BODY+="* **${author}**"$'\n'
             fi
-        done
+        done <<<"$sorted_authors"
         BODY+=$'\n'
     fi
 
@@ -510,7 +579,24 @@ build_release_body() {
     echo "$BODY"
 }
 
-urlencode() { echo "${1//\//%2F}"; }
+# Percent-encode everything outside the RFC 3986 unreserved set, not just '/'.
+# LC_ALL=C keeps the loop byte-wise so non-ASCII tags encode as UTF-8.
+urlencode() {
+    local LC_ALL=C
+    local s="$1" out="" i c n
+    for ((i = 0; i < ${#s}; i++)); do
+        c="${s:i:1}"
+        case "$c" in
+        [a-zA-Z0-9.~_-]) out+="$c" ;;
+        *)
+            printf -v n '%d' "'$c"
+            printf -v c '%%%02X' "$((n & 0xFF))"
+            out+="$c"
+            ;;
+        esac
+    done
+    printf '%s' "$out"
+}
 
 # ═════════════════════════════════════════════════════════════
 #  PROCESS A SINGLE TAG
@@ -529,8 +615,9 @@ process_tag() {
     local TAG="$1"
     local COMPONENT="${TAG%%/*}"
     local VERSION="${TAG#*/}"
-    local EMOJI_CHAR="${EMOJI[$COMPONENT]:-📦}"
-    local NAME="${DISPLAY_NAME[$COMPONENT]:-$COMPONENT}"
+    local EMOJI_CHAR NAME
+    EMOJI_CHAR=$(component_emoji "$COMPONENT")
+    NAME=$(component_display_name "$COMPONENT")
     local TITLE="${EMOJI_CHAR} ${NAME} v${VERSION}"
 
     # Find previous tag of same component (literal matching, no regex pitfalls)
