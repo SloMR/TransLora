@@ -1,59 +1,66 @@
-# Web
+# TransLora web app
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 19.1.4.
+The browser interface: an Angular 19 single-page app that parses subtitle files,
+calls an OpenAI-compatible LLM endpoint directly from the browser, and writes the
+translation back in the original format. No backend — nothing leaves the machine
+except the chat requests to the provider you choose.
 
-## Development server
+See the [root README](../README.md) for what the pipeline does and which providers work.
 
-To start a local development server, run:
-
-```bash
-ng serve
-```
-
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+## Develop
 
 ```bash
-ng generate component component-name
+npm install
+npm start          # http://localhost:4200
 ```
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+## Checks
 
 ```bash
-ng generate --help
+npm run lint       # eslint (angular-eslint + typescript-eslint)
+npm test           # Karma + Jasmine, watch mode
+npm run build      # production build; enforces the bundle budgets
 ```
 
-## Building
+From the repo root, `make test-web`, `make lint-web`, `make typecheck-web` and
+`make build-web` run exactly what CI runs (headless Chrome, coverage on).
 
-To build the project run:
+## Layout
+
+| Path | What lives there |
+| --- | --- |
+| `src/app/app.component.*` | The page shell: theme, layout, and the wiring between the panels |
+| `src/app/file-intake/`, `provider-form/`, `advanced-panel/`, `run-results/` | The four UI panels |
+| `src/app/run-settings.ts` | Every knob: its clamp, its default, its `localStorage` round-trip |
+| `src/app/core/translation-runner.service.ts` | The multi-file queue: worker pool, progress, cancellation, retry |
+| `src/app/core/translation.service.ts` | Per-file orchestration: prepass, batch pool, flags, the capped repair pass |
+| `src/app/core/batch-runner.ts` | One batch: the two retry budgets, recursive split, review pass, deterministic repair |
+| `src/app/core/chat-client.ts` | One chat call: credential hygiene, timeout, retryable errors |
+| `src/app/core/context-pass.ts` | The prepass glossary: the model, per-batch slicing, drift detection |
+| `src/app/core/context-scan.ts`, `context-parse.ts` | The scan and attribution calls, and parsing what they return |
+| `src/app/core/srt-parser.ts` | Wire format and block validation |
+| `src/app/core/repair.ts` | Deterministic repairs: tags, speaker dashes, reflow, punctuation, script leaks |
+| `src/app/core/testdata/` | The synthetic aligned run the whole-file repair tests measure against |
+| `src/app/core/adequacy.ts` | Opt-in back-translation spot check of a sample of batches |
+| `src/app/core/run-stats.ts` | LLM calls per pass: the pre-run estimate and the run summary |
+| `src/app/core/subtitle-formats/` | Per-format parse/rebuild (SRT, VTT, ASS/SSA, SBV, MicroDVD) |
+| `src/styles/` | Shared control primitives, imported by `src/styles.scss` |
+
+`src/app/core/` mirrors `cli/core/`; prompts and tuning constants must stay
+identical across both trees — `cli/tests/test_parity.py` fails the build if they drift.
+
+## Docker
 
 ```bash
-ng build
+docker build -t translora-web .
+docker run --rm -p 8080:8080 translora-web
 ```
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
+Serves the production build from `nginxinc/nginx-unprivileged` as a non-root user.
 
-## Running unit tests
+## Concurrency
 
-To execute unit tests with the [Karma](https://karma-runner.github.io) test runner, use the following command:
-
-```bash
-ng test
-```
-
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+Concurrency defaults to **5**, which suits cloud providers. Against a local
+server, set it to that server's slot count instead (`-np` in `llama.cpp`) —
+more in-flight batches than slots makes a real file *slower*, not faster. The
+root README's [Speed](../README.md#speed) section has the measurements.

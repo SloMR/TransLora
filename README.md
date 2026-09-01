@@ -27,8 +27,10 @@ Two interfaces share the same pipeline:
 ## Highlights
 
 - **Batched translation** — sends ~10 subtitle blocks at a time so small models don't drift, skip short lines, or merge split sentences.
-- **Cast & register prepass** — a pre-scan extracts characters, recurring terms, and the written register so every batch translates names and formality consistently.
-- **Strict validation** — every batch is checked for block count, numbering, and unchanged timestamps; failures retry with back-off and recursively split on repeated failure.
+- **Cast & register prepass** — a pre-scan extracts characters, recurring terms, and the written register; each batch gets the slice matching its own names and terms, so spelling and formality stay consistent. Export it with `--glossary-out` to reuse across a season.
+- **Strict validation** — every batch is checked for block count, the model's own numbering, unchanged timestamps, blanked cues, and timestamp lines leaking into the text; failures retry with back-off and recursively split on repeated failure.
+- **Deterministic repairs** — dropped formatting tags and speaker dashes restored, cues re-wrapped to the source's line count and the script's line length, RTL punctuation and sentence-final marks fixed, all without an API call. What can't be repaired locally — text bleeding in from the next cue, glossary drift, foreign-script leakage — is flagged, and one capped retry re-translates those batches with the problem named.
+- **Split providers** — keep bulk translation on a cheap or local model and send only the review pass to a stronger one.
 - **Auto-detect source language** — omit the source and the model infers it from the text, so mixed-language batches translate to a single target cleanly.
 - **Any OpenAI-compatible provider** — local or cloud, no vendor lock-in.
 - **Parallelism** — translate many batches per file and many files at once.
@@ -39,10 +41,12 @@ Two interfaces share the same pipeline:
 ```bash
 cd web
 npm install
-ng serve
+npm start
 ```
 
-Open http://localhost:4200, drop in one or more subtitle files, pick a target language (source defaults to Auto-detect) and a provider, and download translated files individually or as a ZIP.
+Open http://localhost:4200, drop in one or more subtitle files, pick a target language (source defaults to Auto-detect) and a provider, and download translated files individually or as a ZIP. Your settings are remembered between visits; neither API key ever is.
+
+**If every batch fails instantly, it's CORS.** The browser calls the provider directly, so the provider must send `Access-Control-Allow-Origin`. OpenAI, Groq, DeepSeek and OpenRouter do; a local server usually needs telling — `llama-server --api-key none` accepts cross-origin requests, LM Studio has a CORS toggle in its server settings. A CORS rejection reaches JavaScript as a status-0 error with no body, so the app names it rather than reporting "HTTP 0".
 
 ## Command line
 
@@ -78,21 +82,92 @@ Frequently used flags:
 | `--api-url` | OpenAI-compatible `/v1/chat/completions` endpoint |
 | `--api-key` | API key; use `none` for local servers |
 | `--model` | Model name (optional for local) |
+| `--review-api-url` | Send only the review pass to a different endpoint (default: `--api-url`); no extra calls, the review calls just go elsewhere. |
+| `--review-api-key` | Key for `--review-api-url` (default `$TRANSLORA_REVIEW_API_KEY`, else `--api-key`). |
+| `--review-model` | Model for the review pass (default `--model`). |
 | `--batch-size` | Subtitle blocks per batch (default **10**) |
-| `-c, --concurrency` | Parallel batches per file (default **1** — raise for cloud providers) |
+| `-c, --concurrency` | Parallel batches per file (default **1**); match it to your server's slot count — see [Speed](#speed). |
 | `-pf, --parallel-files` | Files translated in parallel (default **1**) |
-| `--max-retries` | Retries per batch (default **5**) |
+| `--max-retries` | Attempts per batch on HTTP/network failures (default **5**); validation failures split the batch after two instead. |
+| `--timeout` | Per-request timeout in seconds (default **120**) — raise it for local CPU inference. |
+| `--encoding` | Source encoding (default **auto**: UTF-8, then cp1252, cp1256, cp1251, shift_jis); name a codec when detection gets it wrong. |
+| `--dry-run` | Print the planned work and LLM call count, then exit without calling the API. |
+| `--glossary-out` | Write the scanned glossary (cast, terms, register, scenes) to JSON; single file only. |
+| `--glossary-in` | Load a glossary from JSON instead of scanning, saving the scan call per file. |
+| `--no-resume` | Don't reuse or write the `<output>.translora-progress.json` checkpoint. |
 | `--force` | Re-translate even if the output exists |
 | `-v, --verbose` | Show retry/validation warnings (hidden by default) |
 | `-o, --output` | Output path (single file only) |
 | `--scan-budget` | Chars sent to the prepass scan (default **24000**). Lower on tight-context local models (~8k window); raise on large-context cloud models for full-file scans. |
 | `--context-overlap` | Previous-batch source blocks shown as read-only context (default **2**, `0` to disable). Helps speaker continuity across batch boundaries. |
-| `--no-review` | Disable the post-edit review pass. Saves one extra LLM call per batch — useful on metered providers. |
+| `--no-review` | Disable the post-edit review pass; saves one call per batch whose glossary slice names a character or term. |
 | `--no-refine-attribution` | Disable per-block speaker attribution for mixed-gender scenes (saves one small call per ambiguous scene). |
+| `--full-attribution` | Attribute speakers in every scene that has a cast, not only mixed-gender ones (adds one small call per extra scene). |
+| `--no-fix-flagged` | Disable the focused retry of batches flagged for dropped tags, speaker dashes, glossary drift, cross-cue bleeding or foreign-script leakage (the retry costs one call per flagged batch, capped at 5% of the file, minimum 2). |
+| `--verify-adequacy` | Back-translate a fifth of the batches (minimum 2) and flag cues that lost meaning so the retry above fixes them; needs `-s/--source` and adds ~20% more calls. |
+| `--formality` | Address the viewer `formal`ly or `informal`ly (default **auto** — follow the source's own register). |
+| `--dialect` | Target variant, e.g. `"Egyptian Arabic"`, `"Brazilian Portuguese"`. Also replaces the scanned register guess in the prepass. |
+| `--max-line-chars` | Override the target script's line length (default **42** for Latin/Cyrillic/Arabic, **20** for Korean, **16** for Chinese/Japanese — see `--dry-run`). |
+| `--no-reflow` | Don't re-wrap translated cues to the source's line count and the script's line length (local, no extra API calls). |
 
-The defaults are tuned for best translation quality. On metered cloud providers you can pass `--no-review` and/or `--no-refine-attribution` to cut LLM calls. On tight-context local models, lower `--scan-budget` (e.g. `8000`) so the scan prompt fits.
+The defaults are tuned for best translation quality. On metered cloud providers you can pass `--no-review`, `--no-refine-attribution` and/or `--no-fix-flagged` to cut LLM calls; `--verify-adequacy` and `--full-attribution` go the other way and are off by default because they cost calls. On tight-context local models, lower `--scan-budget` (e.g. `8000`) so the scan prompt fits.
 
-Set `NO_COLOR=1` to disable ANSI colors; output auto-falls back to plain lines when piped.
+Set `NO_COLOR=1` to disable ANSI colors; output auto-falls back to plain lines when piped. Set `TRANSLORA_API_KEY` to keep the key out of your shell history and the process table — `--api-key` still wins when both are present. `TRANSLORA_REVIEW_API_KEY` does the same for `--review-api-key`.
+
+Exit codes: **0** every file translated or skipped, **1** at least one file failed or the arguments were invalid, **130** interrupted with Ctrl-C.
+
+### Speed
+
+**Match `--concurrency` to the number of slots your server actually has.** Micro-benchmarks lie here. On an Apple Silicon machine, 6 tiny requests ran **4.5x faster** in parallel than one after another — but the same server, given a real 372-cue file, was **slower** at `-c 6` (**10m25s**) than at `-c 1` (**9m03s**). Real batches carry a system prompt, a glossary slice and the previous batch's tail, so six of them oversubscribe a 2-slot server and the slots keep evicting each other's prefix cache; the cache hits you lose cost more than the parallelism you gain.
+
+So:
+
+- **Local**: set `-c` to the server's slot count — `-np` in `llama.cpp` (`llama-server -np 4` → `-c 4`). Fewer is safe; more is usually a loss.
+- **Watch the context split.** `llama.cpp`'s own `-c` is the *total* context divided across slots: `-c 8192 -np 4` leaves each slot 2048 tokens, which the prepass scan will not fit in. Raise the server's `-c` with `-np`, or lower `--scan-budget`.
+- **Cloud**: there are no slots to oversubscribe — raise `-c` (10 is fine) and add `-pf` for whole folders.
+
+The `--dry-run` estimate assumes every lane stays busy, so it tracks reality only when the lanes match the slots. The web app's **Concurrency** field is the same knob; it defaults to 5 because it is aimed at cloud providers.
+
+### A stronger model for the review pass
+
+Quality is model-bound, and the review pass is where a bigger model pays off most: it sees the source, the first-pass translation and the glossary, and only fixes what is wrong. `--review-api-url`, `--review-api-key` and `--review-model` send that one pass somewhere else — bulk translation stays on the cheap or local model, review goes to the strong one. Each field falls back to the main provider's, so overriding the model alone is enough when both live at the same endpoint.
+
+```bash
+# Local model does the translating; a cloud model reviews.
+python translora.py movie.srt -s English -t Arabic \
+  --api-url http://127.0.0.1:8080/v1/chat/completions \
+  --review-api-url https://api.openai.com/v1/chat/completions \
+  --review-api-key sk-... --review-model gpt-4.1
+```
+
+`--dry-run` prints both endpoints (and whether the review one has its own key) so you can check the routing before spending anything. The web app has the same three fields under **Advanced**.
+
+### Dry run
+
+```bash
+python translora.py ./season/ -t Arabic --api-url ... --dry-run
+```
+
+Prints the endpoints each pass will call, the line norms for the target, per-file block/batch/call counts and a wall-clock estimate, then exits without touching the API.
+
+### Legacy encodings
+
+Subtitle files are often windows-1256 (Arabic), cp1251 (Cyrillic) or latin-1 rather than UTF-8. Detection is automatic and the encoding used is printed per file; if a file decodes to nonsense, name the codec — `--encoding cp1256`. Output is always UTF-8.
+
+### Resuming an interrupted run
+
+Completed batches are checkpointed to `<output>.translora-progress.json` as they land, so a crash, a rate limit or a Ctrl-C doesn't discard a file's paid work — re-run the same command to pick up where it stopped. The checkpoint is keyed to the input, target language, model and batch size, so changing any of them starts fresh; it is deleted on success. `--no-resume` opts out.
+
+### Reusing one glossary across a series
+
+The scan derives cast and register per file, so two episodes can spell a character's name differently. Scan once, then reuse it:
+
+```bash
+python translora.py ep01.srt -t Arabic --api-url ... --glossary-out cast.json
+python translora.py ./season/ -t Arabic --api-url ... --glossary-in cast.json
+```
+
+`cast.json` is plain JSON — fix a wrong name or register by hand and re-run.
 
 ## Docker
 
@@ -103,10 +178,10 @@ Both interfaces ship with a `Dockerfile` so you can build and run without instal
 ```bash
 # from the repo root
 docker build -t translora-web ./web
-docker run --rm -p 8080:80 translora-web
+docker run --rm -p 8080:8080 translora-web
 ```
 
-Open http://localhost:8080. The image is a small `nginx:alpine` serving the production Angular build, with SPA-fallback routing pre-configured.
+Open http://localhost:8080. A small `nginxinc/nginx-unprivileged:alpine` serves the production Angular build with SPA-fallback routing, gzip and security headers; it runs non-root on 8080, so no privileged port is needed.
 
 ### CLI
 
@@ -176,14 +251,19 @@ docker run --rm -v "$(pwd):/work" \
 
 ## How it works
 
-Small and medium LLMs have known failure modes on long subtitle files: skipping one-word blocks (`"Oh!"`, `"Hmm."`), merging sentences split across two blocks for timing, drifting mid-file, and switching dialect or formality between batches. TransLora defends against that with a six-step pipeline:
+Small and medium LLMs have known failure modes on long subtitle files: skipping one-word blocks (`"Oh!"`, `"Hmm."`), merging sentences split across two blocks for timing, drifting mid-file, and switching dialect or formality between batches. TransLora defends against that with a nine-step pipeline:
 
-1. Parse the subtitle file into numbered blocks with timestamps (SRT, VTT, ASS, SSA, SBV, SUB).
-2. Pre-scan the file with one extra LLM call to extract the cast, recurring terms, and the written register (e.g. Modern Standard Arabic, peninsular Spanish, polite Japanese). The relevant slice is attached to each batch so names and formality stay consistent across the whole file.
-3. Split blocks into batches small enough that the model can't drift.
-4. Send each batch with a structure-preserving system prompt.
-5. Validate the response: block count in = out, numbers and timestamps untouched. Repeated failures recursively split the batch down to singletons before giving up.
-6. Retry failed batches up to `--max-retries` before flagging the file, then stitch the validated batches back in order.
+1. **Parse** the file into numbered blocks with timestamps (SRT, VTT, ASS, SSA, SBV, SUB). Every format normalises to one internal shape and is written back through its own writer, so styles and headers survive.
+2. **Scan** — one LLM call over the file (stride-sampled to `--scan-budget`) extracts the cast, recurring terms, and the written register (e.g. Modern Standard Arabic, peninsular Spanish, polite Japanese).
+3. **Attribute** — one small LLM call per multi-speaker scene labels who says each line, so second-person forms get the addressee's gender right. Skipped for scenes that can't be ambiguous; `--full-attribution` runs it everywhere, `--no-refine-attribution` not at all.
+4. **Batch** — blocks are split into groups small enough that the model can't drift, and sent with a structure-preserving system prompt plus the glossary slice matching that batch's characters and terms.
+5. **Validate** — block count in = out, the model's own block numbers unchanged, timestamps untouched, no block blanked, no timestamp line leaked into the text. Two validation failures split the batch in half and recurse down to singletons.
+6. **Review** — batches whose glossary slice names a character or term get one conservative second pass that fixes gender, name and agreement slips. Disable with `--no-review`, or send it to a stronger model with `--review-model`.
+7. **Repair, without asking the model** — the text that will ship gets its dropped formatting tags and speaker dashes restored, is re-wrapped to the source's line count and the script's line length, and has its RTL punctuation and sentence-final mark fixed. It is then read for what no local fix can solve: text bleeding in from the next cue, glossary terms rendered inconsistently, and foreign-script leakage (Latin or Han left sitting in an Arabic line). No API calls; `--no-reflow` opts out of the re-wrap.
+8. **Fix what was flagged** — the batches step 7 flagged are re-translated once with the specific problem named, capped at 5% of the file, and the retry is kept only if it comes back with fewer flags. `--verify-adequacy` adds a back-translation spot check first, so cues that quietly lost meaning join that queue. Disable with `--no-fix-flagged`.
+9. **Stitch and write** — validated batches are reassembled in order, one last file-wide pass strips vocalisation from the few Arabic cues that came back carrying it when the rest of the file does not, and the result is rebuilt into the original format. Transport failures (429, 5xx, timeouts) retry up to `--max-retries` with backoff that honours `Retry-After`; completed batches are checkpointed so a failure never discards the whole file.
+
+**What a run costs.** A 900-block episode at the defaults: 1 scan call, one per qualifying scene (typically 20–40), 90 translate calls, one review call per batch whose glossary slice hits a character or term, and up to 5 repair calls — roughly **150–200 calls**, not 90. Each finished file prints its own breakdown by pass, and `--dry-run` prints the projection before you spend anything; `--no-review` roughly halves it, `--verify-adequacy` adds 18 more.
 
 ## Providers
 
@@ -206,17 +286,19 @@ Anything else that speaks the OpenAI chat-completions protocol will work the sam
 ```
 .
 ├── web/        Angular 19 app (primary interface)
-│   └── src/app/core/   Subtitle parsers, prompt, languages, providers, time tracker, HTTP service
+│   ├── src/app/        UI: file intake, provider form, advanced panel, run results
+│   └── src/app/core/   Parsers, prompts, glossary prepass, repairs, batching, HTTP
 ├── cli/        Python 3.10+ CLI
 │   ├── translora.py    Entry point
-│   └── core/           Batching, HTTP, retries, ETA, live terminal UI
-└── DESIGN.md   Visual-design notes for the web app
+│   └── core/           The same pipeline, plus resume checkpoints and the live terminal UI
+├── scripts/    Release-notes generator and version checks
+└── Makefile    Every command CI runs (make help)
 ```
 
 ## Requirements
 
-- **Web**: Node 18+ and Angular CLI 19
-- **CLI**: Python 3.10+ and `httpx`
+- **Web**: Node 20 (see `.nvmrc`); the Angular CLI comes from `npm install`, no global install needed
+- **CLI**: Python 3.10+ with `httpx` and `pysubs2` (both in `requirements.txt` / `pyproject.toml`)
 - An OpenAI-compatible LLM endpoint (local or hosted)
 
 ## Roadmap
