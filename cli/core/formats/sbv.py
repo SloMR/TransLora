@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import re
 
-from ..srt_parser import SubtitleBlock
-from .types import SubtitleDocument, normalize_newlines, pad2, strip_bom
+from ..srt_parser import SubtitleBlock, normalize_text
+from .types import SubtitleDocument
 
 _SBV_LINE_RE = re.compile(
     r"^(\d+):(\d{2}):(\d{2})\.(\d{3})\s*,\s*"
@@ -14,7 +14,7 @@ _SBV_LINE_RE = re.compile(
 
 
 def parse_sbv(content: str) -> SubtitleDocument:
-    text = normalize_newlines(strip_bom(content)).strip()
+    text = normalize_text(content).strip()
     chunks = re.split(r"\n\n+", text)
 
     blocks: list[SubtitleBlock] = []
@@ -27,9 +27,9 @@ def parse_sbv(content: str) -> SubtitleDocument:
         if not m:
             continue
         g = m.groups()
-        start = f"{pad2(int(g[0]))}:{g[1]}:{g[2]},{g[3]}"
-        end = f"{pad2(int(g[4]))}:{g[5]}:{g[6]},{g[7]}"
-        cue_text = "\n".join(lines[1:])
+        start = f"{int(g[0]):02d}:{g[1]}:{g[2]},{g[3]}"
+        end = f"{int(g[4]):02d}:{g[5]}:{g[6]},{g[7]}"
+        cue_text = normalize_text("\n".join(lines[1:]))
 
         blocks.append(
             SubtitleBlock(
@@ -40,25 +40,13 @@ def parse_sbv(content: str) -> SubtitleDocument:
         n += 1
 
     def rebuild(translated: list[SubtitleBlock]) -> str:
-        out: list[str] = []
-        for i, b in enumerate(translated):
-            ts = original_ts[i] if i < len(original_ts) else _srt_to_sbv(b.timestamp)
-            out.append(f"{ts}\n{b.text}")
+        # Keyed by block number, not list position: a short or reordered
+        # translation must not shift every cue onto the wrong timestamp.
+        text_by_number = {b.number: b.text for b in translated}
+        out = [
+            f"{ts}\n{text_by_number.get(src.number, src.text)}"
+            for ts, src in zip(original_ts, blocks, strict=True)
+        ]
         return "\n\n".join(out) + "\n"
 
     return SubtitleDocument(format="sbv", blocks=blocks, rebuild=rebuild)
-
-
-def _srt_to_sbv(srt: str) -> str:
-    m = re.match(
-        r"(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*"
-        r"(\d{2}):(\d{2}):(\d{2}),(\d{3})",
-        srt,
-    )
-    if not m:
-        return srt
-    g = m.groups()
-    return (
-        f"{int(g[0])}:{g[1]}:{g[2]}.{g[3]},"
-        f"{int(g[4])}:{g[5]}:{g[6]}.{g[7]}"
-    )

@@ -1,6 +1,7 @@
 import pytest
 
 from core.formats import parse_subtitle
+from core.repair import reflow_to_line_count, repair_tags
 
 
 def _translate(blocks):
@@ -117,3 +118,137 @@ def test_translation_applied_on_rebuild() -> None:
     out = doc.rebuild(translated)
     assert "olleh" in out
     assert "hello" not in out
+
+
+def test_sub_microdvd_preserves_its_own_fps_header() -> None:
+    # `{1}{1}<fps>` is a framerate declaration, not a cue: it must not be
+    # translated, duplicated, or rewritten as pysubs2' unreadable `{0}{0}`.
+    src = "{1}{1}23.976\n{100}{200}Hello\n{300}{400}World|Two\n"
+    doc = parse_subtitle("a.sub", src)
+    assert [b.text for b in doc.blocks] == ["Hello", "World\nTwo"]
+
+    out = doc.rebuild(doc.blocks)
+    assert out.startswith("{1}{1}23.976\n")
+    assert out.count("{1}{1}") == 1
+    assert "{0}{0}" not in out
+    # Frame numbers survive the frame -> ms -> frame round-trip.
+    assert [b.text for b in parse_subtitle("a.sub", out).blocks] == \
+        [b.text for b in doc.blocks]
+
+
+def test_sub_microdvd_without_a_header_gets_none_written() -> None:
+    doc = parse_subtitle("a.sub", "{100}{200}Hello\n")
+    out = doc.rebuild(doc.blocks)
+    assert "{1}{1}" not in out and "{0}{0}" not in out
+
+
+def test_sbv_rebuild_is_keyed_by_block_number_not_position() -> None:
+    src = (
+        "0:00:01.000,0:00:02.500\nOne\n\n"
+        "0:00:03.000,0:00:04.500\nTwo\n\n"
+        "0:00:05.000,0:00:06.500\nThree\n"
+    )
+    doc = parse_subtitle("a.sbv", src)
+    # A short and reordered translation must not shift cues onto the wrong
+    # timestamp: block 2 is missing, block 3 arrives first.
+    translated = [
+        type(doc.blocks[0])(number=3, timestamp="", text="Trois"),
+        type(doc.blocks[0])(number=1, timestamp="", text="Un"),
+    ]
+    out = doc.rebuild(translated)
+    assert out == (
+        "0:00:01.000,0:00:02.500\nUn\n\n"
+        "0:00:03.000,0:00:04.500\nTwo\n\n"      # untranslated: source kept
+        "0:00:05.000,0:00:06.500\nTrois\n"
+    )
+
+
+def test_sbv_rebuild_drops_translations_with_no_cue() -> None:
+    doc = parse_subtitle("a.sbv", "0:00:01.000,0:00:02.500\nOne\n")
+    translated = [
+        type(doc.blocks[0])(number=1, timestamp="", text="Un"),
+        type(doc.blocks[0])(number=2, timestamp="", text="Deux"),
+    ]
+    assert doc.rebuild(translated) == "0:00:01.000,0:00:02.500\nUn\n"
+
+
+# === CRLF is normalised at the parser =======================================
+# A real-world SRT is CRLF, and pysubs2 hands back `...{\i0}\r\n\r`: the cue
+# then reports two lines, reflow tries to split it, and repair_tags can no
+# longer see the closing tag at the end. Every parser normalises instead.
+
+CRLF_SRT = (
+    "1\r\n00:00:01,000 --> 00:00:02,500\r\n{\\i1}Little package !{\\i0}\r\n"
+    "\r\n"
+    "2\r\n00:00:03,000 --> 00:00:04,500\r\nTwo\r\nlines\r\n"
+)
+CRLF_VTT = (
+    "WEBVTT\r\n\r\n00:00:01.000 --> 00:00:02.500\r\n<i>Little package !</i>\r\n"
+    "\r\n00:00:03.000 --> 00:00:04.500\r\nTwo\r\nlines\r\n"
+)
+CRLF_ASS = (
+    "[Script Info]\r\nTitle: MyTitle\r\nScriptType: v4.00+\r\n\r\n[Events]\r\n"
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\r\n"
+    "Dialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,{\\i1}Little package !{\\i0}\r\n"
+    "Dialogue: 0,0:00:03.00,0:00:04.50,Default,,0,0,0,,Two\\NLines\r\n"
+)
+CRLF_SBV = (
+    "0:00:01.000,0:00:02.500\r\n{\\i1}Little package !{\\i0}\r\n\r\n"
+    "0:00:03.000,0:00:04.500\r\nTwo\r\nlines\r\n"
+)
+CRLF_SUB = "{100}{200}Line one|Line two\r\n{300}{400}Another\r\n"
+
+
+@pytest.mark.parametrize("name,src", [
+    ("a.srt", CRLF_SRT), ("a.vtt", CRLF_VTT), ("a.ass", CRLF_ASS),
+    ("a.sbv", CRLF_SBV), ("a.sub", CRLF_SUB),
+])
+def test_no_parsed_cue_carries_a_carriage_return(name: str, src: str) -> None:
+    blocks = parse_subtitle(name, src).blocks
+    assert blocks
+    assert [b.text for b in blocks if "\r" in b.text] == []
+
+
+@pytest.mark.parametrize("name,src", [
+    ("a.srt", CRLF_SRT), ("a.vtt", CRLF_VTT), ("a.ass", CRLF_ASS),
+    ("a.sbv", CRLF_SBV),
+])
+def test_a_one_line_crlf_cue_reports_exactly_one_line(name: str, src: str) -> None:
+    # 370 of 372 cues in the benchmark file reported two lines for one.
+    blocks = parse_subtitle(name, src).blocks
+    assert len(blocks[0].text.split("\n")) == 1
+    assert len(blocks[1].text.split("\n")) == 2
+
+
+def test_repair_tags_restores_italics_on_a_crlf_parsed_cue() -> None:
+    source = parse_subtitle("a.srt", CRLF_SRT).blocks[0].text
+    assert repair_tags(source, "علبة صغيرة !") == ("{\\i1}علبة صغيرة !{\\i0}", True)
+
+
+def test_reflow_leaves_a_one_line_crlf_cue_as_one_line() -> None:
+    source = parse_subtitle("a.srt", CRLF_SRT).blocks[0].text
+    target = len(source.split("\n"))
+    assert reflow_to_line_count("علبة صغيرة !", target, 42, "arabic") == "علبة صغيرة !"
+
+
+@pytest.mark.parametrize("name,src", [
+    ("a.srt", CRLF_SRT), ("a.vtt", CRLF_VTT), ("a.ass", CRLF_ASS),
+    ("a.sbv", CRLF_SBV), ("a.sub", CRLF_SUB),
+])
+def test_rebuild_still_round_trips_a_crlf_source(name: str, src: str) -> None:
+    # Line endings in the output file are the writer's business; what matters
+    # is that the normalised text reaches it intact.
+    doc = parse_subtitle(name, src)
+    out = doc.rebuild(doc.blocks)
+    assert [b.text for b in parse_subtitle(name, out).blocks] == \
+        [b.text for b in doc.blocks]
+
+
+def test_a_cue_keeps_its_interior_blank_line() -> None:
+    # serialize_lite collapses these deliberately; the parser must not.
+    doc = parse_subtitle("a.ass", (
+        "[Script Info]\nScriptType: v4.00+\n\n[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,one\\N\\Ntwo\n"
+    ))
+    assert doc.blocks[0].text == "one\n\ntwo"
