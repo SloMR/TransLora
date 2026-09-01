@@ -1,0 +1,189 @@
+@use '../../styles/controls' as controls;
+
+@include controls.headings;
+@include controls.buttons;
+@include controls.icon-buttons;
+@include controls.rows;
+@include controls.meta-text;
+@include controls.actions;
+
+.results-banner {
+  margin-bottom: 0.85rem;
+}
+
+.results-summary {
+  min-width: 0;
+}
+
+.summary-header {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.summary-title {
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.summary-meta {
+  margin: 0.38rem 0 0;
+}
+
+.progress-bar-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.progress-track,
+.row-bar {
+  position: relative;
+  overflow: hidden;
+  height: 0.64rem;
+  border-radius: 999px;
+  background: var(--surface-muted);
+}
+
+.progress-fill,
+.row-bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--color-primary), var(--color-accent));
+}
+
+.progress-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin-top: 0.85rem;
+}
+
+.stat {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.72rem 0.8rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: var(--surface-panel);
+}
+
+.stat-value {
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+
+.run-throughput {
+  margin: 0.6rem 0 0;
+}
+
+.results-section {
+  margin-top: 0.95rem;
+}
+
+.results-section > .section-label,
+.results-section > .section-header {
+  margin-bottom: 0.6rem;
+}
+
+.results-section > .progress-row + .progress-row {
+  margin-top: 0.55rem;
+}
+
+.scroll-list {
+  max-height: 320px;
+  overflow: auto;
+
+  // Focusable so the overflowed rows are reachable without a mouse.
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 3px;
+  }
+}
+
+.progress-row {
+  grid-template-columns: auto minmax(0, 1.35fr) auto minmax(110px, 0.9fr);
+}
+
+.result-item {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+
+.failed-item {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.row-dot,
+.summary-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 999px;
+  background: var(--color-primary);
+  box-shadow: 0 0 0 5px var(--color-primary-soft);
+}
+
+.result-check,
+.failed-icon {
+  color: var(--color-success);
+}
+
+.failed-icon {
+  color: var(--color-danger);
+}
+
+.btn-retry,
+.btn-download-all {
+  color: var(--color-primary-strong);
+}
+
+.btn-cancel {
+  color: var(--color-danger-strong);
+  border-color: var(--border-danger);
+  background: var(--color-danger-soft);
+}
+
+.pulsing {
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  50% {
+    transform: scale(1.18);
+    opacity: 0.78;
+  }
+}
+
+@media (max-width: 720px) {
+  .progress-stats,
+  .progress-row,
+  .result-item {
+    grid-template-columns: 1fr;
+  }
+
+  .scroll-list {
+    max-height: 280px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  // Keep the "working" indicator legible as a static ring.
+  .pulsing {
+    animation: none;
+    opacity: 1;
+    box-shadow:
+      0 0 0 5px var(--color-primary-soft),
+      0 0 0 8px var(--color-primary-soft);
+  }
+}
+
+@include controls.narrow;

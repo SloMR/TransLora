@@ -1,0 +1,180 @@
+<div class="results-banner">
+  <div class="results-summary" role="status" aria-live="polite" aria-atomic="true">
+    @if (isTranslating()) {
+      <div class="summary-header">
+        <span class="summary-dot pulsing"></span>
+        <span class="summary-title">Translation in progress</span>
+      </div>
+    } @else {
+      <div class="summary-header">
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10" stroke="var(--color-success)" fill="var(--color-success-soft)" />
+          <polyline points="9 12 11.5 14.5 16 9.5" stroke="var(--color-success)" />
+        </svg>
+        <span class="summary-title">Translation complete</span>
+      </div>
+    }
+
+    <p class="summary-meta">
+      {{ doneFiles().length }} done
+      @if (failedFiles().length > 0) {
+        &middot; {{ failedFiles().length }} failed
+      }
+      @if (isTranslating()) {
+        &middot; {{ inProgressFiles().length }} in progress
+      }
+    </p>
+  </div>
+
+  @if (isTranslating()) {
+    <button class="btn-cancel" type="button" (click)="cancelTranslation()" [disabled]="isCancelling()">
+      <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+        <rect x="6" y="6" width="12" height="12" rx="2" />
+      </svg>
+      {{ isCancelling() ? 'Cancelling...' : 'Cancel' }}
+    </button>
+  } @else if (doneFiles().length > 1) {
+    <button class="btn-download-all" type="button" (click)="downloadAll()" [disabled]="isZipping()">
+      <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="7 10 12 15 17 10" />
+        <line x1="12" y1="15" x2="12" y2="3" />
+      </svg>
+      {{ isZipping() ? 'Zipping...' : 'Download all' }}
+    </button>
+  }
+</div>
+
+<div class="progress-bar-wrap">
+  <div
+    class="progress-track"
+    role="progressbar"
+    aria-label="Overall progress"
+    aria-valuemin="0"
+    aria-valuemax="100"
+    [attr.aria-valuenow]="overallProgressPercent()"
+    [attr.aria-valuetext]="doneFiles().length + ' of ' + fileStatuses().length + ' files complete'"
+  >
+    <div class="progress-fill" [style.width.%]="overallProgressPercent()"></div>
+  </div>
+  <span class="progress-pct">{{ overallProgressPercent() }}%</span>
+</div>
+
+<div class="progress-stats">
+  <div class="stat">
+    <span class="stat-value">{{ doneFiles().length }} / {{ fileStatuses().length }}</span>
+    <span class="stat-label">Files</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value">{{ tracker().elapsedFormatted() }}</span>
+    <span class="stat-label">Elapsed</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value">{{ isTranslating() ? (tracker().etaFormatted() || '--') : tracker().totalFormatted() }}</span>
+    <span class="stat-label">{{ isTranslating() ? 'ETA' : 'Total time' }}</span>
+  </div>
+</div>
+
+@if (callTotal() > 0) {
+  <p class="run-throughput">
+    {{ callTotal() }} LLM calls ({{ callBreakdown() }}) &middot; {{ throughputLabel() }} blocks/s@if (dialectLabel()) { &middot; {{ dialectLabel() }}}
+  </p>
+}
+
+@if (inProgressFiles().length > 0) {
+  <div class="results-section">
+    <div class="section-label">Translating now</div>
+    @for (f of inProgressFiles(); track f.name) {
+      <div class="progress-row">
+        <span class="row-dot pulsing"></span>
+        <span class="row-name">{{ f.name }}</span>
+        <span class="row-batch">{{ f.currentBatch ?? 0 }} / {{ f.totalBatches ?? '?' }}</span>
+        <div
+          class="row-bar"
+          role="progressbar"
+          [attr.aria-label]="f.name"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          [attr.aria-valuenow]="fileProgressPercent(f)"
+          [attr.aria-valuetext]="(f.currentBatch ?? 0) + ' of ' + (f.totalBatches ?? 0) + ' batches'"
+        >
+          <div class="row-bar-fill" [style.width.%]="fileProgressPercent(f)"></div>
+        </div>
+      </div>
+    }
+  </div>
+}
+
+@if (doneFiles().length > 0) {
+  <div class="results-section">
+    <div class="section-header">
+      <div class="section-label">Completed</div>
+    </div>
+    <ul
+      class="scroll-list"
+      role="list"
+      tabindex="0"
+      [attr.aria-label]="'Completed files, ' + doneFiles().length"
+    >
+      @for (f of doneFiles(); track f.name) {
+        <li class="result-item">
+          <svg aria-hidden="true" class="result-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          <span class="result-name">{{ f.outputName }}</span>
+          <span class="result-meta">{{ f.blockCount }} blocks &middot; {{ tracker().formatMs(f.timeMs ?? 0) }}</span>
+          <button class="result-dl" type="button" (click)="downloadFile(f)" title="Download file" [attr.aria-label]="'Download ' + f.outputName">
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+          </button>
+        </li>
+      }
+    </ul>
+  </div>
+}
+
+@if (failedFiles().length > 0) {
+  <div class="results-section">
+    <div class="section-header">
+      <div class="section-label section-label-fail">Failed</div>
+      @if (canRetryFailed()) {
+        <button class="btn-retry" type="button" (click)="retryFailed()">
+          <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10" />
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
+          Retry failed
+        </button>
+      }
+    </div>
+    <ul
+      class="scroll-list"
+      role="list"
+      tabindex="0"
+      [attr.aria-label]="'Failed files, ' + failedFiles().length"
+    >
+      @for (f of failedFiles(); track f.name) {
+        <li class="failed-item">
+          <svg aria-hidden="true" class="failed-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="15" y1="9" x2="9" y2="15" />
+            <line x1="9" y1="9" x2="15" y2="15" />
+          </svg>
+          <div class="failed-text">
+            <span class="failed-name">{{ f.name }}</span>
+            <span class="failed-msg">{{ f.error }}</span>
+          </div>
+        </li>
+      }
+    </ul>
+  </div>
+}
+
+@if (isDone()) {
+  <div class="results-footer">
+    <button class="btn-again" type="button" (click)="reset()">Translate more</button>
+  </div>
+}

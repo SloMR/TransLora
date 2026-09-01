@@ -1,0 +1,83 @@
+<div class="section-top">
+  <div>
+    <h2 class="card-title">Files</h2>
+    <p class="section-subtitle">Add the subtitle files you want to translate.</p>
+  </div>
+
+  @if (files().length > 0) {
+    <div class="section-meta">{{ fileCountLabel() }}</div>
+  }
+</div>
+
+<!-- One picker for both branches; disabled whenever no add-files control is offered. -->
+<input
+  #fileInput
+  class="sr-only"
+  type="file"
+  [attr.accept]="subtitleAccept"
+  multiple
+  [disabled]="isTranslating() || isDone()"
+  (change)="onFileSelect($event)"
+/>
+
+@if (files().length === 0) {
+  <button
+    class="dropzone"
+    type="button"
+    [class.dropzone-over]="dragOver()"
+    (dragover)="onDragOver($event)"
+    (dragleave)="onDragLeave($event)"
+    (drop)="onDrop($event)"
+    (click)="fileInput.click()"
+  >
+    <span class="dropzone-content">
+      <span class="dropzone-art">
+        <svg aria-hidden="true" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" y1="3" x2="12" y2="15" />
+        </svg>
+      </span>
+
+      <span class="dropzone-copy">
+        <span class="dropzone-title">Drop subtitle files here</span>
+        <span class="dropzone-label">Browse or drag files to start.</span>
+      </span>
+
+      <span class="dropzone-formats">{{ supportedFormats().join(' , ') }}</span>
+    </span>
+  </button>
+} @else {
+  <ul class="file-list" role="list" [attr.aria-label]="'Selected files, ' + fileCountLabel()">
+    @for (f of files(); track f.name; let i = $index) {
+      <li class="file-card">
+        <div class="file-card-icon">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+          </svg>
+        </div>
+
+        <div class="file-card-copy">
+          <span class="file-chip-name">{{ f.name }}</span>
+          <span class="file-card-meta">{{ f.blockCount }} blocks</span>
+        </div>
+
+        @if (!isTranslating()) {
+          <button class="file-chip-remove" type="button" (click)="removeFile(i)" title="Remove file" [attr.aria-label]="'Remove ' + f.name">
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        }
+      </li>
+    }
+  </ul>
+
+  @if (!isTranslating() && !isDone()) {
+    <div class="file-actions">
+      <button class="btn-add-more" type="button" (click)="fileInput.click()">Add more files</button>
+    </div>
+  }
+}

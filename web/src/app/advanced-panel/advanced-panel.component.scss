@@ -1,0 +1,167 @@
+@use '../../styles/controls' as controls;
+
+@include controls.headings;
+@include controls.fields;
+@include controls.buttons;
+@include controls.icon-buttons;
+@include controls.meta-text;
+@include controls.actions;
+
+:host {
+  position: relative;
+}
+
+.advanced-toggle {
+  color: var(--color-primary-strong);
+  background: var(--surface-highlight);
+  border-color: var(--border-accent);
+  box-shadow: none;
+
+  // No lift and no drop shadow; the tint deepening is the whole hover.
+  &:hover {
+    transform: none;
+    background: var(--color-primary-soft);
+    box-shadow: none;
+  }
+}
+
+.advanced-toggle-open {
+  background: var(--color-primary-soft);
+  color: var(--color-primary-strong);
+  border-color: var(--border-accent);
+  box-shadow: inset 0 0 0 1px var(--border-accent);
+}
+
+.advanced-toggle-icon {
+  transition: transform 0.18s ease;
+}
+
+.advanced-toggle-open .advanced-toggle-icon {
+  transform: rotate(180deg);
+}
+
+.field-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding-top: 0.15rem;
+
+  .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  .toggle input[type='checkbox'] {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--color-primary-strong);
+    cursor: pointer;
+  }
+
+  .field-hint {
+    margin-left: 1.55rem;
+  }
+}
+
+// The summary of where the review pass will go: a hint with no field above it.
+.field-hint-standalone {
+  margin: -0.2rem 0 0;
+  color: var(--text-secondary);
+}
+
+.btn-reset {
+  color: var(--text-secondary);
+}
+
+.advanced-done {
+  border-color: transparent;
+  background: var(--gradient-cta);
+  color: var(--text-on-accent);
+  box-shadow: 0 14px 28px var(--shadow-tint);
+}
+
+.advanced-popover {
+  position: absolute;
+  top: calc(100% + 0.65rem);
+  right: 0;
+  z-index: 30;
+  width: min(420px, calc(100vw - 3rem));
+  max-height: min(70vh, 600px);
+  overflow: auto;
+  padding: 0.9rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top right, var(--bg-glow-start), transparent 40%),
+    var(--surface-panel);
+  box-shadow: 0 24px 40px rgba(0, 0, 0, 0.22);
+  animation: dialog-rise 0.18s ease;
+}
+
+.advanced-popover::before {
+  content: '';
+  position: absolute;
+  top: -7px;
+  right: 1.5rem;
+  width: 12px;
+  height: 12px;
+  border-top: 1px solid var(--border-subtle);
+  border-left: 1px solid var(--border-subtle);
+  background: var(--surface-panel);
+  transform: rotate(45deg);
+}
+
+.advanced-popover-body {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 0.75rem;
+}
+
+.advanced-popover-footer {
+  align-items: center;
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.advanced-popover-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.advanced-hint {
+  margin: 0;
+}
+
+@keyframes dialog-rise {
+  from {
+    transform: translateY(8px) scale(0.985);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 720px) {
+  .advanced-popover {
+    position: static;
+    width: 100%;
+    max-height: none;
+    margin-top: 0.75rem;
+  }
+
+  .advanced-popover::before {
+    display: none;
+  }
+}
+
+@include controls.narrow;

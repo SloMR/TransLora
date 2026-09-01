@@ -1,0 +1,126 @@
+<div class="section-top">
+  <div>
+    <h2 class="card-title">Settings</h2>
+    <p class="section-subtitle">Choose language and provider.</p>
+  </div>
+
+  <ng-content />
+</div>
+
+<div class="lang-grid">
+  <div class="lang-col">
+    <label class="label" for="source-lang">From</label>
+    <select id="source-lang" class="select" [ngModel]="sourceLang()" (ngModelChange)="sourceLang.set($event)">
+      <option value="">Auto-detect</option>
+      @for (lang of languages; track lang.code) {
+        <option [value]="lang.name">{{ lang.name }}</option>
+      }
+    </select>
+  </div>
+
+  <button class="lang-swap-button" type="button" (click)="swapLanguages()" title="Swap languages" aria-label="Swap source and target language">
+    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m17 3 4 4-4 4" />
+      <path d="M3 7h18" />
+      <path d="m7 21-4-4 4-4" />
+      <path d="M21 17H3" />
+    </svg>
+  </button>
+
+  <div class="lang-col">
+    <label class="label" for="target-lang">To</label>
+    <select id="target-lang" class="select" aria-describedby="target-lang-norms" [ngModel]="targetLang()" (ngModelChange)="targetLang.set($event)">
+      @for (lang of languages; track lang.code) {
+        <option [value]="lang.name">{{ lang.name }}</option>
+      }
+    </select>
+  </div>
+</div>
+<div class="lang-hints">
+  <p class="field-hint">Auto-detect works for almost every file. Pick one to force the source language.</p>
+  <span class="lang-hints-spacer" aria-hidden="true"></span>
+  <p class="field-hint" id="target-lang-norms">
+    Subtitles will be translated into this language.
+    <span class="script-note">{{ targetNormsLabel() }}</span>
+  </p>
+</div>
+
+<div class="divider"></div>
+
+<div class="field">
+  <span class="label" id="provider-label">Provider</span>
+  <div class="provider-pills" role="group" aria-labelledby="provider-label">
+    @for (option of providerOptions; track option.key) {
+      <button
+        class="pill"
+        type="button"
+        [class.pill-active]="providerType() === option.key"
+        [attr.aria-pressed]="providerType() === option.key"
+        (click)="onProviderTypeChange(option.key)"
+      >
+        {{ option.label }}
+      </button>
+    }
+  </div>
+</div>
+
+@if (currentPreset().needsKey) {
+  <div class="field">
+    <label class="label" for="api-key">API Key</label>
+    <input
+      id="api-key"
+      type="password"
+      class="input"
+      name="translora-api-key"
+      autocomplete="off"
+      spellcheck="false"
+      [ngModel]="apiKey()"
+      (ngModelChange)="apiKey.set($event)"
+      placeholder="Paste your API key"
+    />
+    @if (apiKeyWarning()) {
+      <p class="field-warning">{{ apiKeyWarning() }}</p>
+    } @else {
+      <p class="field-hint">Paste the key from your provider's dashboard. Kept in memory for this tab only — never saved, and sent only to the API URL you configured.</p>
+    }
+  </div>
+}
+
+@if (providerType() === 'custom') {
+  <div class="field">
+    <label class="label" for="api-url-main">API URL</label>
+    <input
+      id="api-url-main"
+      type="text"
+      class="input"
+      name="translora-api-url"
+      autocomplete="off"
+      spellcheck="false"
+      [ngModel]="apiUrl()"
+      (ngModelChange)="apiUrl.set($event)"
+      placeholder="http://127.0.0.1:8080/v1/chat/completions"
+    />
+    <p class="field-hint">The chat-completions endpoint of your server or service.</p>
+  </div>
+} @else {
+  <div class="field">
+    <label class="label" for="model-name">Model</label>
+    <input
+      id="model-name"
+      type="text"
+      class="input"
+      list="model-suggestions"
+      [ngModel]="modelName()"
+      (ngModelChange)="modelName.set($event)"
+      [placeholder]="currentPreset().models.length > 0 ? 'Pick a model or type your own' : 'Optional model name'"
+    />
+    @if (currentPreset().models.length > 0) {
+      <datalist id="model-suggestions">
+        @for (m of currentPreset().models; track m) {
+          <option [value]="m"></option>
+        }
+      </datalist>
+    }
+    <p class="field-hint">Pick one of the provider's models or type a model ID your account supports.</p>
+  </div>
+}
