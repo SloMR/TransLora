@@ -1,32 +1,62 @@
-"""Prepass scan: one call extracts cast, terms, scenes, and register."""
+"""The glossary the prepass produces: the cast, terms, scenes and register it
+holds, and the per-batch slice it renders into a translation prompt."""
 
 from __future__ import annotations
 
-import asyncio
 import re
+from collections import Counter
 from dataclasses import dataclass, field
+from functools import lru_cache
 
-import httpx
-
-from .config import TranslationConfig
-from .constants import ATTRIB_MIN_BLOCKS, MIN_NAME_LEN, SCAN_MAX_TOKENS
-from .prompt import (
-    ATTRIBUTION_SYSTEM_PROMPT,
-    CONTEXT_SYSTEM_PROMPT,
-    build_attribution_user_message,
-    build_scan_user_message,
-)
+from .constants import ATTRIB_MIN_BLOCKS, MIN_NAME_LEN
+from .repair import content_words, strip_tags
 from .srt_parser import SubtitleBlock
 
+# How many glossary terms the scan may return; the file repeats far more
+# phrases than the old cap of 10 could hold.
+MAX_TERMS = 25
+# Idioms are rarer than terms and cost a line of prompt each.
+MAX_IDIOMS = 15
+# A subtitle equivalent is about as short as the phrase it replaces; a target
+# that is both several times longer and long outright is a dictionary
+# definition, and pasting one over a punchline makes the cue unreadable.
+IDIOM_MAX_EXPANSION = 2.5
+IDIOM_MAX_TARGET_CHARS = 40
 
-_SECTION_RE = re.compile(
-    r"<(?P<tag>register|characters|terms|scenes|notes)>\s*"
-    r"(?P<body>.*?)\s*"
-    r"(?=</(?P=tag)>|<(?:register|characters|terms|scenes|notes)>|\Z)",
-    re.I | re.S,
-)
-_SCENE_RANGE_RE = re.compile(r"^(\d+)\s*(?:-\s*(\d+))?$")
-_ATTRIB_LINE_RE = re.compile(r"^\s*(\d+)\s*=\s*(.+?)\s*$")
+# === Recurring-phrase seeding ===
+# Word n-grams the file repeats, mined before the scan so the glossary is
+# seeded from the file itself rather than from whatever the model noticed.
+PHRASE_MIN_WORDS = 2
+PHRASE_MAX_WORDS = 5
+PHRASE_MIN_COUNT = 3
+# Shorter than this and a phrase is a fragment, not a rendering decision.
+PHRASE_MIN_CHARS = 9
+PHRASE_LIMIT = 25
+
+# === File-level phrase consistency ===
+# The consistency check mines its own phrases. PHRASE_MIN_CHARS guards the
+# scan's term budget, where a fragment costs a slot; this check costs nothing
+# and cannot afford to miss an eight-character motif like "the line". Seven
+# admits fragments faster than it finds motifs.
+CONSISTENCY_MIN_CHARS = 8
+# Cues a phrase must recur in before a split reads as a rendering decision
+# rather than three paraphrases of three different sentences.
+CONSISTENCY_MIN_OCCURRENCES = 4
+
+# A phrase made only of function words pins nothing worth pinning.
+PHRASE_STOPWORDS = frozenset({
+    "a", "about", "all", "am", "an", "and", "any", "are", "as", "at", "be",
+    "been", "but", "by", "can", "could", "did", "do", "does", "for", "from",
+    "get", "got", "had", "has", "have", "he", "her", "here", "him", "his",
+    "how", "i", "if", "in", "is", "it", "its", "just", "me", "my", "no", "not",
+    "of", "on", "or", "our", "out", "she", "so", "than", "that", "the", "their",
+    "them", "then", "there", "these", "they", "this", "to", "up", "us", "was",
+    "we", "were", "what", "when", "where", "which", "who", "will", "with",
+    "would", "you", "your",
+})
+
+# Letters and digits, with internal apostrophes kept so "that's" stays one word.
+_PHRASE_WORD_RE = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
 
 
 @dataclass
@@ -40,6 +70,57 @@ class CharacterHint:
 class TermHint:
     source: str
     target: str
+
+
+@dataclass(frozen=True)
+class TermDrift:
+    """A glossary entry the batch used whose pinned target is missing.
+    `kind` is the word the report calls it — and, with the source, the stable
+    key that says two batches drifted on the same entry."""
+    block: int
+    source: str
+    target: str
+    kind: str = "term"  # "term" | "name"
+
+    @property
+    def cause(self) -> str:
+        return f"{self.kind}:{self.source}"
+
+
+DRIFT_LABELS = {"term": "glossary term", "name": "character name"}
+
+
+def drift_phrase(drift: TermDrift) -> str:
+    """How a drift reads in a warning: "glossary term 'x' was not rendered as
+    'y'". The retry prompt shows the same sentence, uncapitalised."""
+    return (f"{DRIFT_LABELS[drift.kind]} '{drift.source}' "
+            f"was not rendered as '{drift.target}'")
+
+
+def glossary_key(source: str) -> str:
+    """Case-folded and whitespace-collapsed, so one phrase cannot enter the
+    glossary twice under two spellings of the same key."""
+    return " ".join(source.split()).casefold()
+
+
+def is_definition(hint: TermHint) -> bool:
+    """An idiom target that explains the idiom instead of translating it. Both
+    limits have to be passed: a long equivalent for a long source is fine."""
+    source_len = len(hint.source.strip())
+    target_len = len(hint.target.strip())
+    return (target_len > IDIOM_MAX_EXPANSION * source_len
+            and target_len > IDIOM_MAX_TARGET_CHARS)
+
+
+def usable_idioms(
+    terms: list[TermHint], idioms: list[TermHint],
+) -> list[TermHint]:
+    """The idioms a glossary may keep. An idiom whose source is already a term
+    is dropped — terms win, because they carry the substitutable target form and
+    an idiom that shadows one pastes its value over every use of the phrase."""
+    pinned = {glossary_key(t.source) for t in terms}
+    return [h for h in idioms
+            if glossary_key(h.source) not in pinned and not is_definition(h)]
 
 
 @dataclass
@@ -58,15 +139,19 @@ class FileContext:
     register: str = ""
     characters: list[CharacterHint] = field(default_factory=list)
     terms: list[TermHint] = field(default_factory=list)
+    idioms: list[TermHint] = field(default_factory=list)
     scenes: list[SceneHint] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
+
     def is_empty(self) -> bool:
         return not (self.register or self.characters or self.terms
-                    or self.scenes or self.notes)
+                    or self.idioms or self.scenes or self.notes)
 
-    def render_for_batch(self, batch: list[SubtitleBlock]) -> str:
-        """Glossary slice scoped to this batch. Register/notes are file-wide."""
+    def _batch_entries(
+        self, batch: list[SubtitleBlock],
+    ) -> tuple[list[CharacterHint], list[TermHint], list[TermHint],
+               list[SceneHint]]:
         text = "\n".join(b.text for b in batch)
         scenes = _scenes_overlapping(self.scenes, batch)
         # Include characters named in the batch AND scene participants — the
@@ -76,7 +161,53 @@ class FileContext:
         chars = [h for h in self.characters
                  if _find_word(text, h.source) >= 0 or h.source in scene_names]
         terms = [h for h in self.terms if _find_word(text, h.source) >= 0]
-        if not (self.register or chars or terms or scenes or self.notes):
+        idioms = [h for h in self.idioms if _find_word(text, h.source) >= 0]
+        return chars, terms, idioms, scenes
+
+    def drift_entries(
+        self, batch: list[SubtitleBlock], output: list[SubtitleBlock],
+    ) -> list[TermDrift]:
+        """Terms and character names the batch's source used whose pinned
+        target never made it into the output. A report only: a term can
+        legitimately be inflected away, so this never fails or retries a batch.
+
+        Characters are matched on the source text alone, never on a scene's
+        participant list: a name the cues never say has no target form to miss.
+        """
+        if not batch:
+            return []
+        text = "\n".join(b.text for b in batch)
+        terms = [h for h in self.terms if _find_word(text, h.source) >= 0]
+        named = [h for h in self.characters if _find_word(text, h.source) >= 0]
+        if not terms and not named:
+            return []
+        rendered = "\n".join(b.text for b in output).lower()
+        first = batch[0].number
+        return [
+            TermDrift(first, h.source, h.target, kind)
+            for kind, hints in (("term", terms), ("name", named))
+            for h in hints
+            if h.target.strip() and h.target.lower() not in rendered
+        ]
+
+    def drift_warnings(
+        self, batch: list[SubtitleBlock], output: list[SubtitleBlock],
+    ) -> list[str]:
+        return [f"Block {d.block}: {drift_phrase(d)}"
+                for d in self.drift_entries(batch, output)]
+
+    def has_correctable_entries(self, batch: list[SubtitleBlock]) -> bool:
+        """True when the slice holds a character, term or idiom the reviewer
+        could act on. Idioms count because the reviewer's idiom rule would
+        otherwise only ever fire on a batch that also names someone."""
+        chars, terms, idioms, _ = self._batch_entries(batch)
+        return bool(chars or terms or idioms)
+
+    def render_for_batch(self, batch: list[SubtitleBlock]) -> str:
+        """Glossary slice scoped to this batch. Register/notes are file-wide."""
+        chars, terms, idioms, scenes = self._batch_entries(batch)
+        if not (self.register or chars or terms or idioms or scenes
+                or self.notes):
             return ""
 
         gender_by = {h.source.casefold(): h.gender for h in self.characters}
@@ -89,6 +220,10 @@ class FileContext:
         if terms:
             parts.append("Terms:\n" + "\n".join(
                 f"- {h.source} => {h.target}" for h in terms))
+        if idioms:
+            parts.append("Idioms - render by meaning, never word for word:\n"
+                         + "\n".join(f"- {h.source} => {h.target}"
+                                     for h in idioms))
         if scenes:
             parts.append(_render_scenes(scenes, gender_by))
         if self.notes:
@@ -105,7 +240,7 @@ def _scenes_overlapping(
     return [s for s in scenes if s.end >= first and s.start <= last]
 
 
-def _gender_mark(g: str | None) -> str:
+def gender_mark(g: str | None) -> str:
     return "M" if g == "male" else "F" if g == "female" else ""
 
 
@@ -113,7 +248,7 @@ def _render_scenes(scenes: list[SceneHint], gender_by: dict[str, str]) -> str:
     lines: list[str] = []
     for s in scenes:
         tagged = ", ".join(
-            f"{n} ({mark})" if (mark := _gender_mark(gender_by.get(n.casefold()))) else n
+            f"{n} ({mark})" if (mark := gender_mark(gender_by.get(n.casefold()))) else n
             for n in s.participants
         )
         prefix = f"- Blocks {s.start}-{s.end}:"
@@ -131,28 +266,52 @@ def _render_scenes(scenes: list[SceneHint], gender_by: dict[str, str]) -> str:
     )
 
 
+# Space-separating scripts only: in CJK, Thai or Arabic an adjacent letter is
+# normal, so demanding a non-letter neighbour there makes every name unmatchable.
+_WORD_CHAR_RE = re.compile(
+    r"[0-9_A-Za-z\u00C0-\u024F\u0300-\u036F\u0370-\u03FF"
+    r"\u0400-\u052F\u1E00-\u1EFF]"
+)
+
+
+def _is_word_char(ch: str) -> bool:
+    return bool(ch) and _WORD_CHAR_RE.match(ch) is not None
+
+
+@lru_cache(maxsize=512)
+def _phrase_pattern(needle: str) -> re.Pattern[str] | None:
+    """`needle` as a regex whose internal spaces match any run of whitespace,
+    so a phrase broken over a line break still matches."""
+    parts = needle.split()
+    if not parts:
+        return None
+    return re.compile(r"\s+".join(re.escape(part) for part in parts))
+
+
 def _find_word(text: str, word: str) -> int:
     """Case-insensitive whole-word search with Unicode-aware boundaries.
-    Works for Latin, Arabic, CJK, etc. Returns first match index or -1."""
+    Works for Latin, Arabic, CJK, etc. A multi-word phrase matches across any
+    run of whitespace, so "safety briefing" is still found when the batch
+    broke it over two subtitle lines. Returns first match index or -1."""
     if not text or not word:
         return -1
-    haystack, needle = text.casefold(), word.casefold()
-    nlen = len(needle)
-    i = 0
-    while i <= len(haystack) - nlen:
-        j = haystack.find(needle, i)
-        if j < 0:
-            return -1
-        before = text[j - 1] if j > 0 else ""
-        after = text[j + nlen] if j + nlen < len(text) else ""
-        # isalnum is Unicode-aware.
-        if not (before.isalnum() or before == "_") and not (after.isalnum() or after == "_"):
-            return j
-        i = j + 1
+    # Lowercasing can change length (e.g. "İ"), so index haystack, not text.
+    haystack = text.lower()
+    pattern = _phrase_pattern(word.lower())
+    if pattern is None:
+        return -1
+    at = 0
+    while (match := pattern.search(haystack, at)) is not None:
+        start, end = match.start(), match.end()
+        before = haystack[start - 1] if start > 0 else ""
+        after = haystack[end] if end < len(haystack) else ""
+        if not _is_word_char(before) and not _is_word_char(after):
+            return start
+        at = start + 1
     return -1
 
 
-def _detect_participants(
+def detect_participants(
     text: str, characters: list[CharacterHint],
 ) -> list[str]:
     """Source names whose source OR target form appears in `text` as a whole
@@ -176,6 +335,109 @@ def _detect_participants(
     return sorted(first_at, key=first_at.__getitem__)
 
 
+# The phrase tokenizer: what a phrase is mined from, and what it is matched
+# against later, so a phrase can never fail to find the cue it came from.
+def _phrase_words(text: str) -> list[str]:
+    return _PHRASE_WORD_RE.findall(strip_tags(text).lower())
+
+
+def _count_ngrams(blocks: list[SubtitleBlock], min_chars: int) -> Counter[str]:
+    counts: Counter[str] = Counter()
+    for block in blocks:
+        words = _phrase_words(block.text)
+        for size in range(PHRASE_MIN_WORDS, PHRASE_MAX_WORDS + 1):
+            for start in range(len(words) - size + 1):
+                gram = words[start:start + size]
+                if all(word in PHRASE_STOPWORDS for word in gram):
+                    continue
+                phrase = " ".join(gram)
+                if len(phrase) < min_chars:
+                    continue
+                counts[phrase] += 1
+    return counts
+
+
+def recurring_phrases(
+    blocks: list[SubtitleBlock], min_chars: int = PHRASE_MIN_CHARS,
+) -> list[str]:
+    """Source phrases the file repeats, ranked by how much rendering them
+    consistently is worth. Deterministic — no model call — and fed to the scan
+    so the glossary is seeded from the file instead of the model's attention.
+    """
+    kept = {phrase: count
+            for phrase, count in _count_ngrams(blocks, min_chars).items()
+            if count >= PHRASE_MIN_COUNT}
+    by_count: dict[int, list[str]] = {}
+    for phrase, count in kept.items():
+        by_count.setdefault(count, []).append(phrase)
+
+    # A short phrase seen only inside a longer one pins nothing extra.
+    survivors = [
+        phrase for phrase, count in kept.items()
+        if not any(other != phrase and f" {phrase} " in f" {other} "
+                   for other in by_count[count])
+    ]
+    # Code-point order, not locale order: the web mirror must rank identically.
+    survivors.sort(key=lambda phrase: (-(kept[phrase] * len(phrase)), phrase))
+    return survivors[:PHRASE_LIMIT]
+
+
+@dataclass(frozen=True)
+class PhraseSplit:
+    """A recurring source phrase whose cues came back with no wording in
+    common. `blocks` are the source blocks it recurs in, so the repair can
+    find their batches."""
+    phrase: str
+    occurrences: int
+    distinct_renderings: int
+    blocks: tuple[int, ...]
+
+    @property
+    def cause(self) -> str:
+        return f"phrase:{self.phrase}"
+
+
+def phrase_split_message(split: PhraseSplit) -> str:
+    return (f"'{split.phrase}' is rendered {split.distinct_renderings} "
+            f"different ways across {split.occurrences} cues; no wording is "
+            f"shared by all of them")
+
+
+def find_inconsistent_phrases(
+    source: list[SubtitleBlock], output: list[SubtitleBlock],
+) -> list[PhraseSplit]:
+    """Phrases the file repeats whose finished cues share no wording at all —
+    the inconsistency the glossary-drift check cannot see, because it only asks
+    whether a PINNED target was used. Whole-file by nature: a quarter of the
+    file looks consistent from inside any one batch. A report and a repair
+    signal, never a rewrite; which rendering is right is not ours to decide."""
+    if not source or not output:
+        return []
+    # By block number, not position: a missing cue must cost only itself.
+    rendered = {b.number: b.text for b in output}
+    haystacks = [f" {' '.join(_phrase_words(b.text))} " for b in source]
+    splits: list[PhraseSplit] = []
+    for phrase in recurring_phrases(source, CONSISTENCY_MIN_CHARS):
+        needle = f" {phrase} "
+        blocks: list[int] = []
+        renderings: list[frozenset[str]] = []
+        for block, haystack in zip(source, haystacks, strict=True):
+            text = rendered.get(block.number)
+            if text is None or needle not in haystack:
+                continue
+            blocks.append(block.number)
+            renderings.append(frozenset(content_words(text)))
+        if len(blocks) < CONSISTENCY_MIN_OCCURRENCES:
+            continue
+        # The phrase's own rendering is not alignable inside a cue, but a
+        # wording every one of its cues shares is the best evidence of one.
+        if frozenset.intersection(*renderings):
+            continue
+        splits.append(PhraseSplit(phrase, len(blocks), len(set(renderings)),
+                                  tuple(blocks)))
+    return splits
+
+
 def _format_scan_line(b: SubtitleBlock) -> str:
     return f"[{b.number}] " + b.text.replace("\n", " ")
 
@@ -194,100 +456,23 @@ def serialize_for_scan(
     return "\n".join(_format_scan_line(b) for b in sampled)
 
 
-def _strip_bullet(line: str) -> str:
-    return line.strip().lstrip("-*• ").strip()
-
-
-def parse_context_response(text: str) -> FileContext:
-    """Parse the tagged response. Tolerates whitespace and bullet markers."""
-    sections = {
-        m.group("tag").lower(): m.group("body")
-        for m in _SECTION_RE.finditer(text or "")
-    }
-
-    register = " ".join(sections.get("register", "").split()).strip().lstrip("-*• ").strip()
-
-    characters: list[CharacterHint] = []
-    for line in sections.get("characters", "").splitlines():
-        line = _strip_bullet(line)
-        if not line or "=>" not in line:
-            continue
-        src, rest = line.split("=>", 1)
-        if "|" in rest:
-            tgt, gender = rest.rsplit("|", 1)
-            tgt, gender = tgt.strip(), gender.strip().lower()
-        else:
-            tgt, gender = rest.strip(), "unknown"
-        if gender not in ("male", "female", "unknown"):
-            gender = "unknown"
-        if src.strip() and tgt:
-            characters.append(CharacterHint(src.strip(), tgt, gender))
-
-    terms: list[TermHint] = []
-    for line in sections.get("terms", "").splitlines():
-        line = _strip_bullet(line)
-        if not line or "=>" not in line:
-            continue
-        src, tgt = line.split("=>", 1)
-        if src.strip() and tgt.strip():
-            terms.append(TermHint(src.strip(), tgt.strip()))
-
-    scenes: list[SceneHint] = []
-    for line in sections.get("scenes", "").splitlines():
-        line = _strip_bullet(line)
-        if not line or "=>" not in line:
-            continue
-        rng, desc = line.split("=>", 1)
-        m = _SCENE_RANGE_RE.match(rng.strip())
-        if not m or not desc.strip():
-            continue
-        start = int(m.group(1))
-        end = int(m.group(2)) if m.group(2) else start
-        if end < start:
-            start, end = end, start
-        scenes.append(SceneHint(
-            start=start, end=end, description=desc.strip(),
-            participants=_detect_participants(desc, characters),
-        ))
-
-    notes = [_strip_bullet(l) for l in sections.get("notes", "").splitlines() if _strip_bullet(l)]
-
-    return FileContext(
-        register=register,
-        characters=characters[:20],
-        terms=terms[:10],
-        scenes=scenes[:80],
-        notes=notes[:4],
-    )
-
-
-async def extract_file_context(
-    client: httpx.AsyncClient,
-    blocks: list[SubtitleBlock],
-    cfg: TranslationConfig,
+def clamp_scenes_to_blocks(
+    context: FileContext, blocks: list[SubtitleBlock],
 ) -> FileContext:
-    """Run one scan call. Returns the parsed+enriched context."""
-    from .batch_runner import call_chat_api, strip_markdown_fences
-
-    user_msg = build_scan_user_message(
-        cfg.source_lang, cfg.target_lang,
-        serialize_for_scan(blocks, cfg.scan_char_budget),
-    )
-    try:
-        raw = await call_chat_api(
-            client, CONTEXT_SYSTEM_PROMPT, user_msg, cfg,
-            max_tokens=SCAN_MAX_TOKENS,
-        )
-    except Exception as e:
-        cfg.warn(f"    Context scan failed, proceeding without: {e}")
-        return FileContext()
-
-    context = parse_context_response(strip_markdown_fences(raw))
-    if context.is_empty():
-        snippet = (raw or "").strip().replace("\n", " ")[:240]
-        cfg.warn(f"    Context scan returned empty glossary. Raw start: {snippet!r}")
-    else:
-        enrich_scenes_with_block_text(context, blocks)
+    """Clip model-invented scene ranges to the file's real block numbers —
+    one hallucinated range can otherwise pull the whole file into a single call."""
+    if not context.scenes or not blocks:
+        return context
+    lo = min(b.number for b in blocks)
+    hi = max(b.number for b in blocks)
+    kept: list[SceneHint] = []
+    for s in context.scenes:
+        if s.end < lo or s.start > hi:
+            continue
+        s.start = max(s.start, lo)
+        s.end = min(s.end, hi)
+        kept.append(s)
+    context.scenes = kept
     return context
 
 
@@ -304,7 +489,7 @@ def enrich_scenes_with_block_text(
     for s in context.scenes:
         joined = "\n".join(
             by_num[n].text for n in range(s.start, s.end + 1) if n in by_num)
-        in_text = _detect_participants(joined, context.characters)
+        in_text = detect_participants(joined, context.characters)
         in_text_set = set(in_text)
         kept = [p for p in s.participants if p in in_text_set]
         seen = set(kept)
@@ -316,72 +501,37 @@ def enrich_scenes_with_block_text(
     return context
 
 
-def _needs_attribution(scene: SceneHint, gender_by: dict[str, str]) -> bool:
-    return (scene.end - scene.start + 1 >= ATTRIB_MIN_BLOCKS
-            and len(scene.participants) >= 1)
-
-
-async def _attribute_scene(
-    client: httpx.AsyncClient,
+def _needs_attribution(
     scene: SceneHint,
-    by_num: dict[int, SubtitleBlock],
-    cfg: TranslationConfig,
-    characters: list[CharacterHint],
-) -> dict[int, str]:
-    from .batch_runner import call_chat_api
-    present = set(scene.participants)
-    roster = "\n".join(
-        f"- {h.source} ({_gender_mark(h.gender) or '?'})"
-        for h in characters if h.source in present
-    )
-    block_lines = [
-        f"[{n}] {by_num[n].text.replace(chr(10), ' ')}"
-        for n in range(scene.start, scene.end + 1) if n in by_num
-    ]
-    if not block_lines or not roster:
-        return {}
-    user_msg = build_attribution_user_message(roster, block_lines)
-    try:
-        raw = await call_chat_api(
-            client, ATTRIBUTION_SYSTEM_PROMPT, user_msg, cfg,
-            max_tokens=len(block_lines) * 20 + 100,
-        )
-    except Exception as e:
-        cfg.warn(f"    Attribution failed for blocks {scene.start}-{scene.end}: {e}")
-        return {}
-    out: dict[int, str] = {}
-    valid = {h.source for h in characters} | {"unknown"}
-    for line in (raw or "").splitlines():
-        m = _ATTRIB_LINE_RE.match(line)
-        if not m:
-            continue
-        n = int(m.group(1))
-        name = m.group(2).strip().strip('"\'')
-        if scene.start <= n <= scene.end and name in valid:
-            out[n] = name
-    return out
+    gender_by: dict[str, str],
+    full: bool = False,
+    target_inflects: bool = False,
+) -> bool:
+    """A scene with two people in it is worth per-block speakers when their
+    genders differ — or when `target_inflects` says the target conjugates for
+    gender at all, because then an unknown gender is the ambiguity this call
+    exists to resolve, not a reason to skip it. `full` trades calls for knowing
+    the speaker of every scene with a cast."""
+    if scene.end - scene.start + 1 < ATTRIB_MIN_BLOCKS:
+        return False
+    if full:
+        return len(scene.participants) >= 1
+    if len(scene.participants) < 2:
+        return False
+    known = {g for p in scene.participants
+             if (g := gender_by.get(p.casefold(), "unknown")) != "unknown"}
+    return len(known) >= 2 or target_inflects
 
 
-async def refine_scene_attribution(
-    client: httpx.AsyncClient,
+def scenes_needing_attribution(
     context: FileContext,
-    blocks: list[SubtitleBlock],
-    cfg: TranslationConfig,
-) -> None:
-    """Fill `SceneHint.attribution` for multi-block scenes with named
-    participants. One small LLM call per target scene, bounded by concurrency."""
+    full: bool = False,
+    target_inflects: bool = False,
+) -> list[SceneHint]:
+    """Scenes worth one attribution call; already-attributed ones are not redone."""
     if not context.scenes or not context.characters:
-        return
+        return []
     gender_by = {h.source.casefold(): h.gender for h in context.characters}
-    targets = [s for s in context.scenes if _needs_attribution(s, gender_by)]
-    if not targets:
-        return
-    by_num = {b.number: b for b in blocks}
-    sem = asyncio.Semaphore(max(1, cfg.concurrency))
-
-    async def do(scene: SceneHint) -> None:
-        async with sem:
-            scene.attribution = await _attribute_scene(
-                client, scene, by_num, cfg, context.characters)
-
-    await asyncio.gather(*(do(s) for s in targets))
+    return [s for s in context.scenes
+            if not s.attribution
+            and _needs_attribution(s, gender_by, full, target_inflects)]
