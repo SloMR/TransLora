@@ -2,19 +2,21 @@
 
 `data/synthetic_aligned.json` holds one synthetic "run" per target language,
 each row tagged with the `lang` it translates into and numbered from 1 within
-that slice. The Arabic slice is 50 cues of made-up dialogue paired with a
-made-up translation that reproduces, cue for cue, the defect shapes two graded
-benchmark runs exposed — CRLF residue, a clause bleeding across a cue
-boundary, a tail that switched to vocalized orthography, dropped tags and
-dropped speaker dashes, collapsed and over-long lines, foreign script welded
-onto Arabic, a flattened sentence mark, and a phrase the file repeats.
+that slice. Every slice plants the same eleven defect shapes in the same
+eleven roles — the constants below name them — because the repairs branch on
+the target's script, and a defect planted only in Arabic only ever proves
+Arabic works.
 
-The Japanese, Chinese, Russian and Spanish slices are short and clean. They
-exist because the repairs branch on the target's script and Arabic alone
-exercises one branch of each: reflow breaks on characters for the space-less
-scripts and on words for the rest, the line budget is 16 for han and japanese
-against 42 for latin and cyrillic, and the RTL and vocalisation passes must
-leave every other script byte-identical.
+Arabic is the longest slice because three passes are its alone: the RTL
+punctuation map, the vocalisation strip and the variant check. Each is
+file-level, so it needs a file to be level against, and the cues past role 12
+are what that file is made of.
+
+Two passes cannot see a defect every slice plants, and both blind spots are
+pinned by a test rather than left for someone to find as a silent gap:
+`content_words` splits on spaces, so the cross-cue run test never fires for
+Japanese or Chinese; and `TERMINAL_MARKS` holds the ASCII three, so a cue
+ending on 。 reads as ending on no mark at all.
 
 Unit tests elsewhere pin each rule on small hand-built cases; these pin what
 the rules do to a whole file, which is the only place a detector's
@@ -60,33 +62,58 @@ from core.srt_parser import SubtitleBlock, normalize_text
 DATA = Path(__file__).parent / "data" / "synthetic_aligned.json"
 
 ARABIC = "Arabic"
-# The added slices, each covering a branch the Arabic one cannot reach.
 JAPANESE, CHINESE, RUSSIAN, SPANISH = "Japanese", "Chinese", "Russian", "Spanish"
+LANGUAGES = (ARABIC, JAPANESE, CHINESE, RUSSIAN, SPANISH)
 ADDED_LANGUAGES = (JAPANESE, CHINESE, RUSSIAN, SPANISH)
 
-CUE_COUNT = 50
-ADDED_CUE_COUNT = 6
+ARABIC_CUE_COUNT = 32
+ADDED_CUE_COUNT = 12
 
-# The added slices share one shape, so a test can name a cue by its role.
+# === The roles every slice plants, by cue number within that slice ===========
+
 CUE_OVER_BUDGET = 1
 CUE_TWO_LINE = 2
 CUE_DIALOGUE = 3
 CUE_TAGGED = 4
-# Cue 5 is whatever that slice alone can show: the script leak in Japanese and
-# Russian, the forty-character line in Spanish.
-CUE_LEAK = CUE_FORTY_CHARS = 5
+# The first cue's translation swallowed a clause of the second, which kept
+# only the fragment.
+BLED_PAIR = (5, 6)
+CUE_DASH_DROPPED = 7   # both dashes gone, both lines survived: restorable
+CUE_DASH_MERGED = 8    # dashes gone AND the turns merged: not restorable
+CUE_DROPPED_WRAP = 9
+CUE_COLLAPSED = 10
+CUE_FLATTENED_MARK = 11
+# Cue 12 is whatever that slice alone can show: the welded Latin in Japanese,
+# the Han leak in Russian, the forty-character line in Chinese.
+CUE_LEAK = CUE_FORTY_CHARS = 12
 
-# The one cue pair that really desynced: 30's translation swallowed 31's clause.
-REAL_DESYNCS = {(30, 31)}
-# A detector that flags everything is useless. The graded run's ceiling was 15
-# flagged pairs in 371, so this file's 49 pairs allow 2; 3 leaves some slack.
-MAX_FLAGGED_PAIRS = 3
-# What the rule costs a reviewer here: two pairs to read, of which one is real.
-FLAGGED_PAIRS = 2
+# The scripts whose bleeding the run test can see. A script written without
+# spaces yields one token per cue, so no run is ever shared.
+BLEED_VISIBLE = (ARABIC, RUSSIAN, SPANISH)
+BLEED_BLIND = (JAPANESE, CHINESE)
+# The scripts whose flattened terminal mark is restored. `_target_mark`
+# re-points the ASCII three for Arabic only, and 。 is not one of them.
+MARK_RESTORED = (ARABIC, RUSSIAN, SPANISH)
+MARK_BLIND = (JAPANESE, CHINESE)
+
+# === What the Arabic slice alone carries, past role 12 ======================
+
+# 13 and 14 both say "coffee", and so do their translations: repetition, never
+# a shift.
+SHARED_WORD_PAIR = (13, 14)
+CUE_CRLF = 15
 # Both cues open on the same Arabic particle and the second is little else.
-FALSE_POSITIVE = (24, 25)
-# 16/17 share "coffee" because both source cues do: never a shift.
-SHARED_WORD_PAIR = (16, 17)
+FALSE_POSITIVE = (16, 17)
+SPLIT_PHRASE_CUES = (18, 19, 20, 21)
+CONSISTENT_PHRASE_CUES = (22, 23, 24)
+CUE_SPACED_LATIN = 25   # a brand the source itself uses: not a leak
+CUE_HAN_LEAK = 26
+CUE_WELDED_LEAK = 27
+VOCALIZED_CUES = (28, 29, 30, 31, 32)
+
+# A detector that flags everything is useless. The graded run's ceiling was 15
+# flagged pairs in 371; this slice's 31 pairs allow 2.
+MAX_FLAGGED_PAIRS = 2
 
 
 def _rows(lang: str = ARABIC) -> list[dict]:
@@ -109,31 +136,13 @@ def run() -> tuple[list[SubtitleBlock], list[SubtitleBlock]]:
     return _load()
 
 
+@pytest.fixture(scope="module")
+def slices() -> dict[str, tuple[list[SubtitleBlock], list[SubtitleBlock]]]:
+    return {lang: _load(lang) for lang in LANGUAGES}
+
+
 def _by_number(blocks: list[SubtitleBlock]) -> dict[int, SubtitleBlock]:
     return {b.number: b for b in blocks}
-
-
-def test_the_fixture_is_one_whole_file(run) -> None:
-    source, output = run
-    assert len(source) == len(output) == CUE_COUNT
-    assert [b.number for b in source] == list(range(1, CUE_COUNT + 1))
-
-
-# === Wire hygiene ============================================================
-
-
-def test_the_crlf_residue_is_normalised_away(run) -> None:
-    """A stray CR reads as a second line, doubling the cue's line count and
-    pushing a closing tag off the end."""
-    raw = next(r for r in _rows() if "\r" in r["en"])
-    assert raw["n"] == 15 and "\r" in raw["target"]
-    source, output = run
-    for text in (_by_number(source)[15].text, _by_number(output)[15].text):
-        assert "\r" not in text
-        assert len(text.split("\n")) == 2
-
-
-# === Cross-cue bleeding ======================================================
 
 
 def _flagged_pairs(messages: list[str]) -> set[tuple[int, int]]:
@@ -144,26 +153,79 @@ def _flagged_pairs(messages: list[str]) -> set[tuple[int, int]]:
     return pairs
 
 
-def test_both_real_desyncs_are_flagged(run) -> None:
-    flagged = _flagged_pairs(detect_cross_cue_shift(*run))
-    assert flagged >= REAL_DESYNCS
+def test_every_slice_is_a_whole_file_of_its_own(slices) -> None:
+    for lang in LANGUAGES:
+        source, output = slices[lang]
+        expected = ARABIC_CUE_COUNT if lang == ARABIC else ADDED_CUE_COUNT
+        assert len(source) == len(output) == expected, lang
+        assert [b.number for b in source] == list(range(1, expected + 1)), lang
+
+
+def test_every_slice_plants_the_same_eleven_shapes(slices) -> None:
+    """The roles are the fixture's contract. A slice missing one would make
+    every loop below quietly measure four scripts instead of five."""
+    for lang in LANGUAGES:
+        source, output = slices[lang]
+        src, out = _by_number(source), _by_number(output)
+        norms = norms_for(lang)
+        assert visible_length(out[CUE_OVER_BUDGET].text) > norms.max_chars_per_line
+        assert len(out[CUE_TWO_LINE].text.split("\n")) == 2
+        assert dialogue_dash_lines(out[CUE_DIALOGUE].text) == 2
+        assert len(find_tags(out[CUE_TAGGED].text)) == 2
+        assert dialogue_dash_lines(out[CUE_DASH_DROPPED].text) == 0
+        assert len(out[CUE_DASH_MERGED].text.split("\n")) == 1
+        assert find_tags(out[CUE_DROPPED_WRAP].text) == []
+        assert len(src[CUE_COLLAPSED].text.split("\n")) == 2
+        assert len(out[CUE_COLLAPSED].text.split("\n")) == 1
+        assert src[CUE_FLATTENED_MARK].text.endswith("!")
+
+
+# === Wire hygiene ============================================================
+
+
+def test_the_crlf_residue_is_normalised_away(run) -> None:
+    """A stray CR reads as a second line, doubling the cue's line count and
+    pushing a closing tag off the end."""
+    raw = next(r for r in _rows() if "\r" in r["en"])
+    assert raw["n"] == CUE_CRLF and "\r" in raw["target"]
+    source, output = run
+    for text in (_by_number(source)[CUE_CRLF].text,
+                 _by_number(output)[CUE_CRLF].text):
+        assert "\r" not in text
+        assert len(text.split("\n")) == 2
+
+
+# === Cross-cue bleeding ======================================================
+
+
+def test_the_planted_bleed_is_flagged_in_every_script_that_can_see_it(
+    slices,
+) -> None:
+    for lang in BLEED_VISIBLE:
+        assert _flagged_pairs(detect_cross_cue_shift(*slices[lang])) == {
+            BLED_PAIR}, lang
+
+
+def test_a_space_less_script_hides_the_same_bleed(slices) -> None:
+    """Not a gap to close by loosening the rule. `content_words` splits on
+    spaces, so a script that does not use them hands the run test one token per
+    cue and no run can ever be shared. The bleed is planted in these slices
+    anyway, so the day the rule learns to see it, this test says so."""
+    for lang in BLEED_BLIND:
+        source, output = slices[lang]
+        assert detect_cross_cue_shift(source, output) == [], lang
+        first = _by_number(output)[BLED_PAIR[0]]
+        assert len(repair.content_words(first.text)) == 1, lang
 
 
 def test_the_detector_stays_quiet_on_most_of_the_file(run) -> None:
-    source, _ = run
-    messages = detect_cross_cue_shift(*run)
-    assert len(source) - 1 == CUE_COUNT - 1
-    assert len(messages) == FLAGGED_PAIRS
-    assert len(messages) <= MAX_FLAGGED_PAIRS
-
-
-def test_only_one_flagged_pair_is_a_false_positive(run) -> None:
     flagged = _flagged_pairs(detect_cross_cue_shift(*run))
-    assert flagged - REAL_DESYNCS == {FALSE_POSITIVE}
+    assert len(flagged) <= MAX_FLAGGED_PAIRS
+    assert FALSE_POSITIVE not in flagged
 
 
 def test_a_word_both_source_cues_share_is_never_a_shift(run) -> None:
-    """16 and 17 both say "coffee", and so do their translations. Repetition
+    """13 and 14 both say "coffee", and so do their translations. Repetition
     is not movement, and the source-ratio rule is what knows the difference."""
     assert SHARED_WORD_PAIR not in _flagged_pairs(detect_cross_cue_shift(*run))
 
@@ -182,16 +244,15 @@ def test_the_coverage_rule_is_what_silences_the_word_reuse_pairs(run) -> None:
                       repair._cue_chars(by_number[second].text))
         return repair._run_chars(run_words), repair.SHIFT_MIN_COVERAGE * shorter
 
-    for first, second in sorted(REAL_DESYNCS):
-        chars, needed = coverage(first, second)
-        assert chars >= needed
+    chars, needed = coverage(*BLED_PAIR)
+    assert chars >= needed
     chars, needed = coverage(*SHARED_WORD_PAIR)
     assert chars < needed
 
 
 def test_the_flag_names_the_shared_run(run) -> None:
     assert (
-        "Blocks 30-31: 'منتصف الليل' appears in both cues - "
+        "Blocks 5-6: 'بوابة المرفأ' appears in both cues - "
         "text may have shifted between them"
     ) in detect_cross_cue_shift(*run)
 
@@ -199,30 +260,28 @@ def test_the_flag_names_the_shared_run(run) -> None:
 def test_the_old_length_ratio_rule_would_have_missed_it(run) -> None:
     """Why the rule was replaced: the desync barely moved the cue lengths."""
     source, output = run
-    by_number = _by_number(source)
-    out_by_number = _by_number(output)
-    for first, second in sorted(REAL_DESYNCS):
-        ratios = [
-            len(out_by_number[n].text) / len(by_number[n].text)
-            for n in (first, second)
-        ]
-        assert not (ratios[0] > 2.0 and ratios[1] < 0.5)
-        assert not (ratios[0] < 0.5 and ratios[1] > 2.0)
+    by_number, out_by_number = _by_number(source), _by_number(output)
+    ratios = [
+        len(out_by_number[n].text) / len(by_number[n].text) for n in BLED_PAIR
+    ]
+    assert not (ratios[0] > 2.0 and ratios[1] < 0.5)
+    assert not (ratios[0] < 0.5 and ratios[1] > 2.0)
 
 
 # === Foreign script ==========================================================
 
 
-def test_only_the_three_leaking_cues_are_reported(run) -> None:
+def test_only_the_two_leaking_arabic_cues_are_reported(run) -> None:
     source, output = run
     leaks = {
         src.number: script_leaks(src.text, out.text, "arabic")
         for src, out in zip(source, output, strict=True)
     }
-    assert sorted(n for n, found in leaks.items() if found) == [11, 12, 13]
+    assert sorted(n for n, found in leaks.items() if found) == [
+        CUE_HAN_LEAK, CUE_WELDED_LEAK]
     # A Latin brand the source itself uses, spaced off from the Arabic, is not
     # a leak — otherwise every credit line would be flagged.
-    assert leaks[14] == []
+    assert leaks[CUE_SPACED_LATIN] == []
 
 
 def test_the_leak_reports_name_the_offending_text(run) -> None:
@@ -232,96 +291,180 @@ def test_the_leak_reports_name_the_offending_text(run) -> None:
     def leaks(n: int) -> list[str]:
         return script_leaks(by_source[n].text, by_output[n].text, "arabic")
 
-    assert leaks(11) == ["han characters appear in the translation ('北京')"]
-    assert leaks(12) == ["'المotel' welds arabic to latin with no separator"]
-    assert leaks(13) == ["'وjoey' welds arabic to latin with no separator"]
+    assert leaks(CUE_HAN_LEAK) == [
+        "han characters appear in the translation ('北京')"]
+    assert leaks(CUE_WELDED_LEAK) == [
+        "'الmotel' welds arabic to latin with no separator"]
+
+
+def test_latin_welded_into_a_japanese_cue_is_reported(slices) -> None:
+    source, output = slices[JAPANESE]
+    src, out = _by_number(source)[CUE_LEAK], _by_number(output)[CUE_LEAK]
+    assert script_leaks(src.text, out.text, "japanese")
+
+
+def test_han_left_in_a_russian_cue_is_reported(slices) -> None:
+    source, output = slices[RUSSIAN]
+    src, out = _by_number(source)[CUE_LEAK], _by_number(output)[CUE_LEAK]
+    assert script_leaks(src.text, out.text, "cyrillic")
+
+
+def test_no_other_cue_in_any_added_slice_leaks(slices) -> None:
+    for lang in ADDED_LANGUAGES:
+        source, output = slices[lang]
+        script = script_for(lang)
+        flagged = [
+            src.number
+            for src, out in zip(source, output, strict=True)
+            if script_leaks(src.text, out.text, script)
+        ]
+        assert flagged in ([], [CUE_LEAK]), lang
 
 
 # === Speaker dashes ==========================================================
 
 
-def _restored(run) -> dict[int, tuple[str, bool]]:
-    source, output = run
-    return {
-        src.number: restore_dialogue_dashes(src.text, out.text)
-        for src, out in zip(source, output, strict=True)
-    }
+def test_the_dashes_go_back_where_the_line_count_survived(slices) -> None:
+    for lang in LANGUAGES:
+        source, output = slices[lang]
+        src = _by_number(source)[CUE_DASH_DROPPED]
+        out = _by_number(output)[CUE_DASH_DROPPED]
+        text, ok = restore_dialogue_dashes(src.text, out.text)
+        assert ok, lang
+        assert text == "\n".join(f"- {line}" for line in out.text.split("\n"))
 
 
-def test_the_dashes_go_back_where_the_line_count_survived(run) -> None:
-    text, ok = _restored(run)[4]
-    assert ok
-    assert text == "- أين عمر الليلة؟\n- هو عند البوابة."
-
-
-def test_a_cue_that_lost_a_speaker_turn_is_reported_not_guessed(run) -> None:
-    """Both source lines were merged into one, so which words belong to which
-    speaker is no longer knowable: report it, change nothing."""
-    _, output = run
-    text, ok = _restored(run)[3]
-    assert not ok
-    assert text == _by_number(output)[3].text
+def test_a_cue_that_lost_a_speaker_turn_is_reported_not_guessed(slices) -> None:
+    for lang in LANGUAGES:
+        source, output = slices[lang]
+        src = _by_number(source)[CUE_DASH_MERGED]
+        out = _by_number(output)[CUE_DASH_MERGED]
+        text, ok = restore_dialogue_dashes(src.text, out.text)
+        assert (text, ok) == (out.text, False), lang
 
 
 def test_every_other_cue_keeps_its_dashes_and_its_text(run) -> None:
-    _, output = run
-    by_number = _by_number(output)
-    for number, (text, ok) in _restored(run).items():
-        if number in (3, 4):
+    source, output = run
+    for src, out in zip(source, output, strict=True):
+        if src.number in (CUE_DASH_DROPPED, CUE_DASH_MERGED):
             continue
-        assert ok and text == by_number[number].text
+        assert restore_dialogue_dashes(src.text, out.text) == (out.text, True)
 
 
 # === Line count and line length ==============================================
 
 
-def _reflowed(run, max_chars: int = 42, script: str = "arabic") -> dict[int, str]:
-    source, output = run
-    result = {}
-    for src, out in zip(source, output, strict=True):
-        text, _ = restore_dialogue_dashes(src.text, out.text)
-        text = reflow_to_line_count(
-            text, len(src.text.split("\n")), max_chars, script)
-        result[src.number] = enforce_line_length(text, max_chars, script)
-    return result
+def test_the_collapsed_cue_is_rewrapped_in_every_script(slices) -> None:
+    for lang in LANGUAGES:
+        _, output = slices[lang]
+        norms = norms_for(lang)
+        out = _by_number(output)[CUE_COLLAPSED]
+        rewrapped = reflow_to_line_count(
+            out.text, 2, norms.max_chars_per_line, norms.script)
+        assert len(rewrapped.split("\n")) == 2, lang
 
 
-def test_only_the_collapsed_and_over_long_cues_are_rewrapped(run) -> None:
-    reflowed = _reflowed(run)
-    restored = _restored(run)
-    changed = [n for n, text in reflowed.items() if text != restored[n][0]]
-    # 7 lost a line break, 8 and 30 are single lines past the Arabic limit.
-    assert changed == [7, 8, 30]
-    assert reflowed[7].count("\n") == 1
-    assert all(len(line) <= 42 for line in reflowed[8].split("\n"))
+def test_the_over_long_cue_is_broken_in_every_script(slices) -> None:
+    for lang in LANGUAGES:
+        _, output = slices[lang]
+        norms = norms_for(lang)
+        out = _by_number(output)[CUE_OVER_BUDGET]
+        lines = enforce_line_length(
+            out.text, norms.max_chars_per_line, norms.script).split("\n")
+        # Two lines is the professional maximum, so this is what the repair
+        # guarantees: exactly two, both inside the target script's budget.
+        assert len(lines) == 2, lang
+        for line in lines:
+            assert visible_length(line) <= norms.max_chars_per_line, lang
 
 
-def test_the_dialogue_cue_is_left_alone_even_though_it_lost_a_line(run) -> None:
-    """Cue 3 is one line where the source had two, but re-wrapping a cue that
-    still carries a dash would put a speaker turn mid-line."""
-    _, output = run
-    assert _reflowed(run)[3] == _by_number(output)[3].text
+def test_the_dialogue_cue_is_left_alone_whatever_the_script(slices) -> None:
+    for lang in LANGUAGES:
+        _, output = slices[lang]
+        norms = norms_for(lang)
+        out = _by_number(output)[CUE_DIALOGUE]
+        assert reflow_to_line_count(
+            out.text, 1, norms.max_chars_per_line, norms.script) == out.text, lang
 
 
-def test_a_line_inside_the_arabic_limit_is_still_over_the_cjk_one(run) -> None:
-    _, output = run
-    line = _by_number(output)[9].text
-    assert 16 < len(line) <= 42
-    assert enforce_line_length(line, 42, "arabic") == line
-    assert enforce_line_length(line, 16, "han").count("\n") == 1
+def test_a_space_less_script_is_broken_between_characters(slices) -> None:
+    for lang in (JAPANESE, CHINESE):
+        _, output = slices[lang]
+        norms = norms_for(lang)
+        out = _by_number(output)[CUE_OVER_BUDGET]
+        lines = reflow_to_line_count(
+            out.text, 2, norms.max_chars_per_line, norms.script).split("\n")
+        assert len(lines) == 2, lang
+        # Joined with nothing at all: the break landed inside the writing, and
+        # no separator was invented to hold the halves apart.
+        assert "".join(lines) == out.text, lang
+        # The word reflow has one unit to work with and cannot split at all.
+        assert reflow_to_line_count(
+            out.text, 2, norms.max_chars_per_line, "latin") == out.text, lang
+
+
+def test_a_spaced_script_is_broken_between_words(slices) -> None:
+    for lang in (ARABIC, RUSSIAN, SPANISH):
+        _, output = slices[lang]
+        norms = norms_for(lang)
+        out = _by_number(output)[CUE_OVER_BUDGET]
+        lines = reflow_to_line_count(
+            out.text, 2, norms.max_chars_per_line, norms.script).split("\n")
+        assert len(lines) == 2, lang
+        # Rejoining on the space proves no word was cut in half.
+        assert " ".join(lines) == out.text, lang
+
+
+def test_the_line_budget_is_per_script_not_global(slices) -> None:
+    assert [norms_for(lang).max_chars_per_line for lang in LANGUAGES] == [
+        42, 16, 16, 42, 42]
+    _, output = slices[CHINESE]
+    out = _by_number(output)[CUE_FORTY_CHARS]
+    assert visible_length(out.text) == 40
+    latin, han = norms_for(SPANISH), norms_for(CHINESE)
+    assert enforce_line_length(
+        out.text, latin.max_chars_per_line, latin.script) == out.text
+    assert len(enforce_line_length(
+        out.text, han.max_chars_per_line, han.script).split("\n")) == 2
+
+
+def test_a_two_line_cue_inside_its_budget_is_left_alone(slices) -> None:
+    for lang in LANGUAGES:
+        _, output = slices[lang]
+        norms = norms_for(lang)
+        out = _by_number(output)[CUE_TWO_LINE]
+        assert enforce_line_length(
+            out.text, norms.max_chars_per_line, norms.script) == out.text, lang
+
+
+def test_a_tag_costs_no_columns_in_any_script(slices) -> None:
+    for lang in LANGUAGES:
+        _, output = slices[lang]
+        out = _by_number(output)[CUE_TAGGED]
+        assert visible_length(out.text) < len(out.text), lang
 
 
 # === Formatting tags =========================================================
 
 
+def test_a_dropped_wrapping_tag_is_restored_whatever_the_script(slices) -> None:
+    for lang in LANGUAGES:
+        source, output = slices[lang]
+        src = _by_number(source)[CUE_DROPPED_WRAP]
+        out = _by_number(output)[CUE_DROPPED_WRAP]
+        text, ok = repair_tags(src.text, out.text)
+        assert ok, lang
+        assert text == f"<i>{out.text}</i>", lang
+
+
 def test_the_empty_pair_is_dropped_and_the_wrapping_pair_restored(run) -> None:
+    """The shape a real run shipped: the wrap duplicated, leaving renderless
+    pairs either side of the text."""
     source, output = run
-    by_source, by_output = _by_number(source), _by_number(output)
-    assert "<i></i>" in by_output[5].text
-    assert repair_tags(by_source[5].text, by_output[5].text) == (
-        "انطفأت الأضواء عند الفجر.", True)
-    assert repair_tags(by_source[6].text, by_output[6].text) == (
-        "<i>لم يجب أحد على اللاسلكي.</i>", True)
+    src, out = _by_number(source)[12], _by_number(output)[12]
+    text, ok = repair_tags(src.text, out.text)
+    assert ok
+    assert text == "{\\i1}كان المرفأ هادئا.{\\i0}"
 
 
 # === Diacritics ==============================================================
@@ -329,282 +472,111 @@ def test_the_empty_pair_is_dropped_and_the_wrapping_pair_restored(run) -> None:
 
 def test_only_the_vocalized_tail_is_stripped(run) -> None:
     _, output = run
-    normalized = normalize_diacritics(output, "arabic")
-    changed = [
-        after.number for before, after in zip(output, normalized, strict=True)
-        if before.text != after.text
-    ]
-    # The model switched orthographic register for the last ten cues, plus 22.
-    assert changed == [22, *range(41, 51)]
+    stripped = normalize_diacritics(output, "arabic")
+    moved = [b.number for b, s in zip(output, stripped, strict=True)
+             if b.text != s.text]
+    assert moved == list(VOCALIZED_CUES)
 
 
 def test_stripping_leaves_the_letters_alone(run) -> None:
     _, output = run
-    normalized = normalize_diacritics(output, "arabic")
-    vocalized = next(b for b in normalized if b.number == 41)
-    assert diacritic_count(vocalized.text) == 0
-    assert "عمر" in vocalized.text
+    stripped = _by_number(normalize_diacritics(output, "arabic"))
+    assert stripped[28].text == "خذ الفانوس وانزل."
+    # A shadda sits on a letter; stripping it must not take the letter.
+    assert stripped[30].text == "الماء شديد السواد الليلة."
+    for n in VOCALIZED_CUES:
+        assert diacritic_count(stripped[n].text) == 0
 
 
 def test_a_file_vocalized_throughout_is_left_alone(run) -> None:
-    """Full vocalisation is a deliberate style, not the drift we are fixing."""
+    """The strip is file-level: only the whole file says what its baseline is."""
     _, output = run
-    heavy = [b for b in output if b.number >= 41]
-    assert normalize_diacritics(heavy, "arabic") == heavy
-
-
-# === Terminal punctuation ====================================================
-
-
-def test_the_swapped_sentence_marks_are_restored(run) -> None:
-    source, output = run
-    by_number = _by_number(output)
-    fixed = {
-        src.number: restore_terminal_punctuation(src.text, out.text, "arabic")
-        for src, out in zip(source, output, strict=True)
-    }
-    changed = {n: text for n, text in fixed.items()
-               if text != by_number[n].text}
-    # An exclamation and a question both came back as statements.
-    assert sorted(changed) == [10, 20]
-    assert changed[10].endswith("!")
-    assert changed[20].endswith("؟")
-
-
-# === The other scripts =======================================================
-
-# Everything above measures Arabic. The repairs branch on the target's script
-# in four places — where a line may be broken, how wide it may be, whether
-# ASCII punctuation is re-pointed and whether vocalisation is stripped — and
-# Arabic reaches exactly one side of each branch. These pin the other side.
-
-
-@pytest.fixture(scope="module")
-def slices() -> dict[str, tuple[list[SubtitleBlock], list[SubtitleBlock]]]:
-    return {lang: _load(lang) for lang in ADDED_LANGUAGES}
-
-
-def _cue(slices, lang: str, number: int) -> str:
-    return _by_number(slices[lang][1])[number].text
-
-
-def test_every_added_slice_is_a_whole_file_of_its_own(slices) -> None:
-    for lang in ADDED_LANGUAGES:
-        source, output = slices[lang]
-        assert len(source) == len(output) == ADDED_CUE_COUNT
-        assert [b.number for b in source] == list(range(1, ADDED_CUE_COUNT + 1))
-
-
-def test_every_added_slice_carries_the_shapes_the_repairs_need(slices) -> None:
-    """A slice with nothing over its budget, no second line, no speaker turn
-    and no tag leaves the rules below with nothing to act on."""
-    for lang in ADDED_LANGUAGES:
-        norms = norms_for(lang)
-        over_budget = _cue(slices, lang, CUE_OVER_BUDGET)
-        assert visible_length(over_budget) > norms.max_chars_per_line
-        assert "\n" not in over_budget
-        assert _cue(slices, lang, CUE_TWO_LINE).count("\n") == 1
-        assert dialogue_dash_lines(_cue(slices, lang, CUE_DIALOGUE)) == 2
-        assert find_tags(_cue(slices, lang, CUE_TAGGED))
-
-
-# === Where a line may be broken ==============================================
-
-
-def test_a_space_less_script_is_broken_between_characters(slices) -> None:
-    """Japanese and Chinese cues carry no spaces at all, so the word-unit
-    branch sees a single unit and gives up: only the character-unit branch can
-    wrap them, and rejoining with no space reproduces the cue."""
-    for lang in (JAPANESE, CHINESE):
-        text = _cue(slices, lang, CUE_OVER_BUDGET)
-        norms = norms_for(lang)
-        assert " " not in text
-        lines = reflow_to_line_count(
-            text, 2, norms.max_chars_per_line, norms.script).split("\n")
-        assert len(lines) == 2
-        assert "".join(lines) == text
-        assert reflow_to_line_count(text, 2, 42, "latin") == text
-
-
-def test_a_spaced_script_is_broken_between_words(slices) -> None:
-    """Rejoining with the space the break consumed reproduces the cue, so no
-    break landed inside a word."""
-    for lang in (RUSSIAN, SPANISH):
-        text = _cue(slices, lang, CUE_OVER_BUDGET)
-        norms = norms_for(lang)
-        lines = reflow_to_line_count(
-            text, 2, norms.max_chars_per_line, norms.script).split("\n")
-        assert len(lines) == 2
-        assert " ".join(lines) == text
-
-
-def test_a_dialogue_cue_is_never_reflowed_whatever_the_script(slices) -> None:
-    """Merging two dashed lines would put a speaker turn mid-line; the guard
-    runs before the script is ever consulted and has to stay that way."""
-    for lang in ADDED_LANGUAGES:
-        text = _cue(slices, lang, CUE_DIALOGUE)
-        norms = norms_for(lang)
-        assert reflow_to_line_count(
-            text, 1, norms.max_chars_per_line, norms.script) == text
-
-
-def test_dropped_speaker_dashes_go_back_whatever_the_script(slices) -> None:
-    for lang in ADDED_LANGUAGES:
-        source, output = slices[lang]
-        text = _by_number(output)[CUE_DIALOGUE].text
-        flattened = "\n".join(
-            line.removeprefix("- ") for line in text.split("\n"))
-        assert restore_dialogue_dashes(
-            _by_number(source)[CUE_DIALOGUE].text, flattened) == (text, True)
-
-
-# === How wide a line may be ==================================================
-
-
-def test_the_line_budget_is_per_script_not_global(slices) -> None:
-    """One forty-character line, two targets: latin keeps it, han has to wrap
-    it. The text never changed — only the norms the target brings."""
-    line = _cue(slices, SPANISH, CUE_FORTY_CHARS)
-    latin, han = norms_for(SPANISH), norms_for(CHINESE)
-    assert (latin.max_chars_per_line, han.max_chars_per_line) == (42, 16)
-    assert visible_length(line) == 40
-    assert enforce_line_length(line, latin.max_chars_per_line, latin.script) == line
-    assert enforce_line_length(
-        line, han.max_chars_per_line, han.script).count("\n") == 1
-
-
-def test_a_two_line_cue_inside_its_budget_is_left_alone(slices) -> None:
-    for lang in ADDED_LANGUAGES:
-        text = _cue(slices, lang, CUE_TWO_LINE)
-        norms = norms_for(lang)
-        assert all(visible_length(line) <= norms.max_chars_per_line
-                   for line in text.split("\n"))
-        assert enforce_line_length(
-            text, norms.max_chars_per_line, norms.script) == text
-
-
-def test_a_tag_costs_no_columns_in_any_script(slices) -> None:
-    """Every tagged cue is past its budget as raw text and inside it once the
-    tags are discounted, so a rule measuring len() would rewrap all four."""
-    for lang in ADDED_LANGUAGES:
-        text = _cue(slices, lang, CUE_TAGGED)
-        norms = norms_for(lang)
-        assert len(text) > norms.max_chars_per_line
-        assert visible_length(text) <= norms.max_chars_per_line
-        assert enforce_line_length(
-            text, norms.max_chars_per_line, norms.script) == text
-
-
-def test_a_dropped_wrapping_tag_is_restored_whatever_the_script(slices) -> None:
-    for lang in ADDED_LANGUAGES:
-        source, output = slices[lang]
-        text = _by_number(output)[CUE_TAGGED].text
-        bare = text.removeprefix("<i>").removesuffix("</i>")
-        assert repair_tags(
-            _by_number(source)[CUE_TAGGED].text, bare) == (text, True)
-
-
-# === Arabic-only passes, measured against the scripts they must not touch ====
-
-
-RTL_CUE = 2
-
-
-def test_the_rtl_map_repoints_an_arabic_cue(run, slices) -> None:
-    """Arabic cue 2 is the same English line as cue 3 of every added slice, so
-    the five translations below are one input answered five ways. Only the
-    Arabic one carries a mark ASCII gets wrong: its ؟ is what the map has to
-    put back when a model returns the ASCII form."""
-    source, arabic = run
-    assert (_by_number(source)[RTL_CUE].text
-            == _by_number(slices[SPANISH][0])[CUE_DIALOGUE].text)
-    written = _by_number(arabic)[RTL_CUE].text
-    as_returned = written.replace("؟", "?")
-    assert as_returned != written
-    assert normalize_rtl_punctuation(as_returned, "arabic") == written
-
-
-def test_the_rtl_map_leaves_every_other_script_byte_identical(slices) -> None:
-    for lang in ADDED_LANGUAGES:
-        output = slices[lang][1]
-        # Vacuous unless the slice holds a mark the map could have re-pointed.
-        assert any(char in RTL_PUNCTUATION for b in output for char in b.text)
-        script = script_for(lang)
-        assert ([normalize_rtl_punctuation(b.text, script) for b in output]
-                == [b.text for b in output])
-
-
-def test_the_rtl_map_is_licensed_by_the_target_not_by_the_text(run) -> None:
-    """The same Arabic cue, byte for byte: re-pointed for an Arabic target and
-    left alone for every other one. Two rules keep the map off a Russian or
-    Japanese cue — the target's script and the absence of an Arabic
-    neighbour — and this is the one that pins the first."""
-    _, arabic = run
-    as_returned = _by_number(arabic)[RTL_CUE].text.replace("؟", "?")
-    for lang in ADDED_LANGUAGES:
-        assert normalize_rtl_punctuation(
-            as_returned, script_for(lang)) == as_returned
+    vocalized = [b for b in output if b.number in VOCALIZED_CUES]
+    assert normalize_diacritics(vocalized, "arabic") == vocalized
 
 
 def test_vocalisation_stripping_leaves_a_non_arabic_file_untouched(
     slices,
 ) -> None:
-    """Twice over: the script guard turns the pass away, and there is nothing
-    in these scripts for it to strip even when it is asked to run."""
     for lang in ADDED_LANGUAGES:
-        output = slices[lang][1]
-        assert normalize_diacritics(output, script_for(lang)) == output
-        assert normalize_diacritics(output, "arabic") == output
+        _, output = slices[lang]
+        assert normalize_diacritics(output, script_for(lang)) == output, lang
 
 
 def test_vocalisation_stripping_is_licensed_by_the_target_too(run) -> None:
-    """The Arabic file's vocalized tail offered to a non-Arabic target: the
-    marks stay, though an Arabic target strips eleven cues of them."""
-    _, arabic = run
+    """The same Arabic cues, declared Latin, come back untouched: the gate is
+    the target's script, not what the characters happen to be."""
+    _, output = run
+    assert normalize_diacritics(output, "latin") == output
+
+
+# === Terminal punctuation ====================================================
+
+
+def test_the_flattened_mark_is_restored_in_every_script_that_knows_it(
+    slices,
+) -> None:
+    for lang in MARK_RESTORED:
+        source, output = slices[lang]
+        script = script_for(lang)
+        restored = [
+            src.number
+            for src, out in zip(source, output, strict=True)
+            if restore_terminal_punctuation(src.text, out.text, script) != out.text
+        ]
+        assert restored == [CUE_FLATTENED_MARK], lang
+
+
+def test_a_cjk_full_stop_is_not_a_mark_the_pass_knows(slices) -> None:
+    """The same defect, planted the way a real CJK run writes it.
+    `TERMINAL_MARKS` holds the ASCII three and `_target_mark` re-points them
+    for Arabic only, so a cue ending on 。 reads as ending on no mark at all
+    and is left exactly as the model wrote it."""
+    for lang in MARK_BLIND:
+        source, output = slices[lang]
+        script = script_for(lang)
+        src = _by_number(source)[CUE_FLATTENED_MARK]
+        out = _by_number(output)[CUE_FLATTENED_MARK]
+        assert src.text.endswith("!") and out.text.endswith("。"), lang
+        assert restore_terminal_punctuation(src.text, out.text, script) == out.text
+        for s, o in zip(source, output, strict=True):
+            assert restore_terminal_punctuation(s.text, o.text, script) == o.text
+
+
+# === Arabic-only passes, measured against the scripts they must not touch ====
+
+
+def test_the_rtl_map_repoints_an_arabic_cue(run) -> None:
+    _, output = run
+    question = _by_number(output)[CUE_DIALOGUE].text
+    assert "؟" in question
+    assert normalize_rtl_punctuation(
+        question.replace("؟", "?"), "arabic") == question
+    assert set(RTL_PUNCTUATION) == {"?", ",", ";"}
+
+
+def test_the_rtl_map_leaves_every_other_script_byte_identical(slices) -> None:
     for lang in ADDED_LANGUAGES:
-        assert normalize_diacritics(arabic, script_for(lang)) == arabic
+        _, output = slices[lang]
+        for out in output:
+            assert normalize_rtl_punctuation(
+                out.text, script_for(lang)) == out.text, lang
+            # Not just the script gate: Arabic's own map finds nothing to
+            # re-point in a cue with no Arabic letter beside the mark.
+            assert normalize_rtl_punctuation(out.text, "arabic") == out.text, lang
+
+
+def test_the_rtl_map_is_licensed_by_the_target_not_by_the_text(run) -> None:
+    _, output = run
+    for out in output:
+        assert normalize_rtl_punctuation(out.text, "latin") == out.text
 
 
 def test_variant_drift_finds_nothing_in_a_non_arabic_file(slices) -> None:
-    """The markers are Arabic function words, so a Russian or Japanese file is
-    clean whether or not the script guard is what stops the check."""
-    for lang in (RUSSIAN, JAPANESE):
-        output = slices[lang][1]
-        assert detect_variant_drift(output, script_for(lang)) is None
-        assert detect_variant_drift(output, "arabic") is None
-
-
-# === Foreign script, in the scripts Arabic cannot show =======================
-
-
-def test_latin_welded_into_a_japanese_cue_is_reported(slices) -> None:
-    source, output = slices[JAPANESE]
-    assert script_leaks(
-        _by_number(source)[CUE_LEAK].text,
-        _by_number(output)[CUE_LEAK].text,
-        "japanese",
-    ) == ["'客はmotelにいる' welds han to latin with no separator"]
-
-
-def test_han_left_in_a_russian_cue_is_reported(slices) -> None:
-    source, output = slices[RUSSIAN]
-    assert script_leaks(
-        _by_number(source)[CUE_LEAK].text,
-        _by_number(output)[CUE_LEAK].text,
-        "cyrillic",
-    ) == ["han characters appear in the translation ('北京')"]
-
-
-def test_no_other_cue_in_any_added_slice_leaks(slices) -> None:
-    """The Spanish and Chinese slices are the control: a detector that fires
-    on clean text in a script it was never tuned on is worse than none."""
     for lang in ADDED_LANGUAGES:
-        source, output = slices[lang]
-        script = script_for(lang)
-        flagged = [out.number
-                   for src, out in zip(source, output, strict=True)
-                   if script_leaks(src.text, out.text, script)]
-        assert flagged == ([CUE_LEAK] if lang in (JAPANESE, RUSSIAN) else [])
+        _, output = slices[lang]
+        assert detect_variant_drift(
+            [b.text for b in output], lang) is None, lang
 
 
 # === Recurring-phrase seeding ================================================
@@ -613,10 +585,22 @@ def test_no_other_cue_in_any_added_slice_leaks(slices) -> None:
 def test_the_phrases_the_run_kept_mistranslating_are_seeded(run) -> None:
     source, _ = run
     phrases = recurring_phrases(source)
-    assert phrases[0] == "harbour master"  # 5 cues, the file's own subject
-    for phrase in ("night shift", "the west gate", "the harbour master"):
+    for phrase in ("night shift", "harbour master"):
         assert phrase in phrases
     assert len(phrases) <= 25
+
+
+def test_the_split_phrase_is_rendered_three_different_ways(run) -> None:
+    """Every cue reads correctly on its own; only a whole-file pass can see
+    that the file never settled on one wording."""
+    _, output = run
+    by_number = _by_number(output)
+    renderings = {by_number[n].text for n in SPLIT_PHRASE_CUES}
+    assert len(renderings) == len(SPLIT_PHRASE_CUES)
+    assert sum("نوبة الليل" in t for t in renderings) == 2
+    # The phrase the file did settle on, for contrast.
+    assert all("رئيس المرفأ" in by_number[n].text
+               for n in CONSISTENT_PHRASE_CUES)
 
 
 # === What the review gate costs ==============================================
@@ -632,21 +616,16 @@ BENCHMARK_GLOSSARY = FileContext(
     characters=[
         CharacterHint("Omar", "عمر", "male"),
         CharacterHint("Nadia", "نادية", "female"),
-        CharacterHint("Joey", "جوي", "male"),
-        CharacterHint("Reyes", "رييس", "unknown"),
     ],
     terms=[
-        TermHint("harbour master", "رئيس الميناء"),
+        TermHint("harbour master", "رئيس المرفأ"),
         TermHint("night shift", "نوبة الليل"),
-        TermHint("west gate", "البوابة الغربية"),
         TermHint("log book", "دفتر السجل"),
     ],
     idioms=[
         TermHint("all right", "حسنا"),
         TermHint("hurry up", "أسرع"),
-        TermHint("out loud", "بصوت عال"),
         TermHint("one by one", "واحدا تلو الآخر"),
-        TermHint("at last", "أخيرا"),
     ],
 )
 
@@ -665,24 +644,26 @@ def _idiom_only(batch: list[SubtitleBlock]) -> bool:
             and "Characters:" not in rendered and "Terms:" not in rendered)
 
 
-def test_counting_idioms_costs_nothing_at_the_default_batch_size(run) -> None:
-    """5 batches, 5 reviewed before and 5 after: ten cues is long enough that
-    every batch of this file already names a character or a term."""
+def test_counting_idioms_buys_exactly_one_review_call(run) -> None:
+    """4 batches and all 4 reviewed. The closing scene is the one that names
+    an idiom and nothing else the reviewer may act on, so it is the single
+    call the widened gate bought; every other batch already named a character
+    or a term."""
     source, _ = run
     batches = _batches(source, DEFAULT_BATCH_SIZE)
     reviewed = [b for b in batches
                 if BENCHMARK_GLOSSARY.has_correctable_entries(b)]
-    assert (len(batches), len(reviewed)) == (5, 5)
-    assert [b for b in batches if _idiom_only(b)] == []
+    gained = [b for b in batches if _idiom_only(b)]
+    assert (len(batches), len(reviewed)) == (4, 4)
+    assert [(b[0].number, b[-1].number) for b in gained] == [(31, 32)]
+    assert gained[0] in reviewed
 
 
-def test_halving_the_batch_is_where_counting_idioms_buys_a_call(run) -> None:
-    """10 batches, 8 reviewed before and 9 after — one extra call, and the
-    closing scene is the batch that gains it."""
+def test_halving_the_batch_leaves_one_slice_the_gate_turns_away(run) -> None:
+    """7 batches, 6 reviewed: smaller batches mean glossary slices that name
+    nothing correctable at all, and those still cost nothing."""
     source, _ = run
     batches = _batches(source, DEFAULT_BATCH_SIZE // 2)
     reviewed = [b for b in batches
                 if BENCHMARK_GLOSSARY.has_correctable_entries(b)]
-    gained = [b for b in batches if _idiom_only(b)]
-    assert (len(batches), len(reviewed)) == (10, 9)
-    assert [(b[0].number, b[-1].number) for b in gained] == [(46, 50)]
+    assert (len(batches), len(reviewed)) == (7, 6)
