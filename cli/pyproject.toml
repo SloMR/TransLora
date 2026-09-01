@@ -1,8 +1,12 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "translora"
 version = "0.5.0"
 description = "AI-powered subtitle translator with batched LLM calls and block-level validation."
-readme = "../README.md"
+# No `readme`: it lives above this directory, out of reach of a PEP 517 build.
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
@@ -14,6 +18,10 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
 ]
+
+# Ship nothing: `core` is a script-local package name, not one to squat on PyPI.
+[tool.setuptools]
+packages = []
 
 [tool.uv]
 package = false
