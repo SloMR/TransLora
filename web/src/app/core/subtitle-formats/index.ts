@@ -4,29 +4,47 @@ import type {
   ContentCaption,
 } from 'subsrt-ts/dist/types/handler.js';
 
-import { SubtitleBlock } from '../srt-parser';
-import { SubtitleDocument, SubtitleFormat, pad2, pad3 } from './types';
+import { SubtitleBlock, normalizeCueText, parseSrt, serializeSrt } from '../srt-parser';
+import { parseAss } from './ass';
+import { parseVtt } from './vtt';
+import { SubtitleDocument, SubtitleFormat, msToSrt } from './types';
 
 export * from './types';
 
-const EXT_TO_FORMAT: Record<string, string> = {
-  srt: 'srt',
-  vtt: 'vtt',
-  ass: 'ass',
-  ssa: 'ssa',
+// Formats still handled by subsrt-ts; SRT, VTT and ASS/SSA are parsed here
+// because subsrt-ts loses cue text or per-cue metadata on round-trip.
+const SUBSRT_FORMATS: Record<string, string> = {
   sub: 'sub',
   sbv: 'sbv',
 };
 
-// Parses via subsrt-ts. All formats normalize to SRT-shape blocks; rebuild
-// round-trips back through subsrt-ts into the original on-disk format.
+// All formats normalize to SRT-shape blocks; rebuild restores the original file.
 export function parseSubtitle(fileName: string, content: string): SubtitleDocument {
   const ext = fileExt(fileName);
-  const format = EXT_TO_FORMAT[ext];
+  if (ext === 'srt') return parseSrtDocument(content);
+  if (ext === 'vtt') return parseVtt(content);
+  if (ext === 'ass' || ext === 'ssa') return parseAss(content, ext);
+
+  const format = SUBSRT_FORMATS[ext];
   if (!format) {
     throw new Error(`Unsupported subtitle format: .${ext || fileName}`);
   }
+  return parseViaSubsrt(content, ext as SubtitleFormat, format);
+}
 
+function parseSrtDocument(content: string): SubtitleDocument {
+  // Renumbered 1..n: the pipeline addresses blocks by position.
+  const parsed = parseSrt(content).map((b, i) => ({ ...b, number: i + 1 }));
+  const rebuild = (translated: SubtitleBlock[]): string =>
+    serializeSrt(parsed.map((b, i) => (translated[i] ? { ...b, text: translated[i].text } : b)));
+  return { format: 'srt', blocks: parsed, rebuild };
+}
+
+function parseViaSubsrt(
+  content: string,
+  ext: SubtitleFormat,
+  format: string,
+): SubtitleDocument {
   const captions = subsrt.parse(content, { format });
 
   const contentIndices: number[] = [];
@@ -38,7 +56,7 @@ export function parseSubtitle(fileName: string, content: string): SubtitleDocume
     blocks.push({
       number: blocks.length + 1,
       timestamp: `${msToSrt(cap.start)} --> ${msToSrt(cap.end)}`,
-      text: cap.content ?? cap.text ?? '',
+      text: normalizeCueText(cap.content ?? cap.text ?? ''),
     });
   });
 
@@ -48,22 +66,15 @@ export function parseSubtitle(fileName: string, content: string): SubtitleDocume
       const ci = contentIndices[i];
       if (ci == null) return;
       const cap = updated[ci] as ContentCaption;
-      cap.text = block.text;
-      cap.content = block.text;
+      // subsrt-ts converts only the first newline to MicroDVD's '|'.
+      const text = format === 'sub' ? block.text.split(/\r?\n/).join('|') : block.text;
+      cap.text = text;
+      cap.content = text;
     });
     return subsrt.build(updated, { format });
   };
 
-  return { format: ext as SubtitleFormat, blocks, rebuild };
-}
-
-function msToSrt(ms: number): string {
-  const total = Math.max(0, Math.floor(ms));
-  const h = Math.floor(total / 3_600_000);
-  const m = Math.floor(total / 60_000) % 60;
-  const s = Math.floor(total / 1000) % 60;
-  const mmm = total % 1000;
-  return `${pad2(h)}:${pad2(m)}:${pad2(s)},${pad3(mmm)}`;
+  return { format: ext, blocks, rebuild };
 }
 
 function fileExt(name: string): string {
