@@ -1,0 +1,342 @@
+// Control primitives shared by more than one component. Grouped as mixins so a
+// component emits only the groups it actually uses.
+
+// Card and section headers.
+@mixin headings {
+  .section-top,
+  .section-header,
+  .results-banner,
+  .advanced-popover-header,
+  .advanced-popover-footer {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.8rem;
+  }
+
+  .card-title,
+  .advanced-popover-title {
+    margin: 0;
+    font-size: 1rem;
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+    color: var(--text-primary);
+  }
+
+  .section-subtitle,
+  .advanced-popover-text {
+    margin: 0.26rem 0 0;
+    font-size: 0.81rem;
+    line-height: 1.45;
+    color: var(--text-muted);
+  }
+
+  .section-meta,
+  .section-label {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2rem;
+    padding: 0.34rem 0.72rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    background: var(--surface-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+
+  .section-label-fail {
+    color: var(--color-danger);
+    border-color: var(--border-danger);
+    background: var(--color-danger-soft);
+  }
+}
+
+// The pill-shaped secondary buttons.
+@mixin buttons {
+  .advanced-toggle,
+  .btn-add-more,
+  .btn-reset,
+  .btn-again,
+  .btn-retry,
+  .btn-cancel,
+  .btn-download-all,
+  .advanced-done {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    min-height: 2.3rem;
+    padding: 0.55rem 0.9rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    background: var(--surface-elevated);
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    transition:
+      transform 0.18s ease,
+      border-color 0.18s ease,
+      background-color 0.18s ease,
+      box-shadow 0.18s ease,
+      color 0.18s ease;
+
+    &:hover {
+      transform: translateY(-1px);
+      border-color: var(--border-accent);
+      box-shadow: 0 10px 18px rgba(0, 0, 0, 0.06);
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.62;
+      transform: none;
+      box-shadow: none;
+    }
+  }
+}
+
+// The round 2.2rem icon-only buttons.
+@mixin icon-buttons {
+  .lang-swap-button,
+  .file-chip-remove,
+  .result-dl,
+  .advanced-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    flex: 0 0 auto;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    background: var(--surface-elevated);
+    color: var(--text-secondary);
+    transition:
+      transform 0.18s ease,
+      border-color 0.18s ease,
+      color 0.18s ease,
+      background-color 0.18s ease;
+
+    &:hover {
+      transform: translateY(-1px);
+      border-color: var(--border-accent);
+      color: var(--color-primary);
+    }
+  }
+}
+
+// Inline validation and error copy.
+@mixin messages {
+  .field-warning,
+  .error {
+    margin: 0;
+    font-size: 0.76rem;
+    line-height: 1.4;
+  }
+
+  .field-warning {
+    color: var(--color-danger);
+  }
+}
+
+// A labelled input stack, and the two-column grid they pack into.
+@mixin fields {
+  @include messages;
+
+  .field,
+  .field-num {
+    display: grid;
+    gap: 0.38rem;
+  }
+
+  .field + .field {
+    margin-top: 0.8rem;
+  }
+
+  .field-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.7rem;
+    align-items: start;
+
+    .field + .field {
+      margin-top: 0;
+    }
+  }
+
+  .label {
+    font-size: 0.73rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+
+  .input,
+  .select {
+    width: 100%;
+    min-width: 0;
+    min-height: 2.6rem;
+    padding: 0.72rem 0.88rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: 16px;
+    background: var(--surface-field);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    transition:
+      border-color 0.18s ease,
+      background-color 0.18s ease,
+      box-shadow 0.18s ease,
+      transform 0.18s ease;
+
+    &::placeholder {
+      color: var(--text-muted);
+    }
+
+    &:hover {
+      background: var(--surface-field-hover);
+    }
+
+    &:focus {
+      border-color: var(--border-accent);
+      box-shadow: 0 0 0 4px var(--focus-ring);
+    }
+  }
+
+  .select {
+    appearance: none;
+    padding-right: 2.5rem;
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
+      linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%);
+    background-position:
+      calc(100% - 1rem) calc(50% - 0.14rem),
+      calc(100% - 0.72rem) calc(50% - 0.14rem);
+    background-size: 0.34rem 0.34rem, 0.34rem 0.34rem;
+    background-repeat: no-repeat;
+  }
+
+  .field-hint {
+    margin: 0.3rem 0 0;
+    font-size: 0.7rem;
+    line-height: 1.35;
+    color: var(--text-muted);
+  }
+}
+
+// Lists of file-shaped rows, and the name inside one.
+@mixin rows {
+  .file-list,
+  .scroll-list {
+    display: grid;
+    gap: 0.62rem;
+    margin: 0.85rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .file-card,
+  .result-item,
+  .failed-item,
+  .progress-row {
+    display: grid;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.76rem 0.82rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: 18px;
+    background: var(--surface-panel);
+  }
+
+  .file-card-copy,
+  .failed-text {
+    display: grid;
+    gap: 0.12rem;
+    min-width: 0;
+  }
+
+  .file-chip-name,
+  .row-name,
+  .result-name,
+  .failed-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+}
+
+// The muted secondary line that sits under or beside a name.
+@mixin meta-text {
+  .file-card-meta,
+  .result-meta,
+  .failed-msg,
+  .row-batch,
+  .stat-label,
+  .progress-pct,
+  .action-text,
+  .advanced-hint,
+  .summary-meta {
+    font-size: 0.77rem;
+    color: var(--text-muted);
+  }
+}
+
+// A trailing row of buttons under a card.
+@mixin actions {
+  .file-actions,
+  .results-footer,
+  .action-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin-top: 0.85rem;
+  }
+}
+
+// Every narrow-viewport rule the groups above need. Included last by each
+// component so it lands after that component's own rules, as it did when the
+// whole sheet was one file.
+@mixin narrow {
+  @media (max-width: 720px) {
+    .results-banner,
+    .section-top,
+    .advanced-popover-header,
+    .advanced-popover-footer {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .field-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .action-controls,
+    .results-footer,
+    .advanced-popover-actions {
+      width: 100%;
+    }
+
+    .advanced-done,
+    .btn-reset,
+    .btn-download-all,
+    .btn-cancel,
+    .btn-retry,
+    .btn-again {
+      width: 100%;
+    }
+
+    .result-item,
+    .progress-row,
+    .failed-item,
+    .file-card {
+      gap: 0.55rem;
+    }
+  }
+}
