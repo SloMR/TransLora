@@ -6,7 +6,6 @@ import {
   output,
   signal,
 } from '@angular/core';
-import JSZip from 'jszip';
 import { describeDialect } from '../core/chat-client';
 import { FileStatus } from '../core/file-types';
 import {
@@ -97,6 +96,8 @@ export class RunResultsComponent {
 
     this.isZipping.set(true);
     try {
+      // Loaded on demand: nobody pays for the zip library until they ask for a zip.
+      const { default: JSZip } = await import('jszip');
       const zip = new JSZip();
       for (const f of done) {
         if (f.content) zip.file(f.outputName, f.content);
