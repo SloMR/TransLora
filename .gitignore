@@ -29,7 +29,12 @@ env/
 .python-version
 
 # === IDE ===
-.vscode/
+# Not `.vscode/`: git cannot re-include a file inside an ignored directory.
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
 .idea/
 *.swp
 *.swo
@@ -39,6 +44,10 @@ env/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# === Lint & type-check caches ===
+.ruff_cache/
+.mypy_cache/
 
 # === Coverage & Testing ===
 coverage/
@@ -52,3 +61,11 @@ htmlcov/
 *.log
 *.tgz
 .cache/
+
+# === Local models & benchmark scratch ===
+*.gguf
+*.bin
+
+
+# Personal subtitle files used for benchmarking
+test_translations/
