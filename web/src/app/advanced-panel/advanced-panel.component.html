@@ -1,0 +1,277 @@
+<button
+  #advancedToggle
+  id="advanced-toggle"
+  class="advanced-toggle"
+  type="button"
+  [class.advanced-toggle-open]="showAdvanced()"
+  [attr.aria-expanded]="showAdvanced()"
+  aria-controls="advanced-panel"
+  (click)="toggleAdvanced()"
+>
+  Advanced
+  <svg aria-hidden="true" class="advanced-toggle-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+</button>
+
+@if (showAdvanced()) {
+  <section id="advanced-panel" class="advanced-popover" role="group" aria-labelledby="advanced-toggle">
+    <div class="advanced-popover-header">
+      <div>
+        <h3 class="advanced-popover-title">Advanced</h3>
+        <p class="advanced-popover-text">Endpoint and request limits.</p>
+      </div>
+
+      <button class="advanced-close" type="button" (click)="closeAdvanced()" title="Close advanced settings" aria-label="Close advanced settings">
+        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </div>
+
+    <div class="advanced-popover-body">
+      @if (providerType() !== 'custom') {
+        <div class="field">
+          <label class="label" for="api-url">API URL</label>
+          <input
+            id="api-url"
+            type="text"
+            class="input"
+            name="translora-api-url"
+            autocomplete="off"
+            spellcheck="false"
+            [ngModel]="apiUrl()"
+            (ngModelChange)="apiUrl.set($event)"
+            placeholder="http://127.0.0.1:8080/v1/chat/completions"
+          />
+          <p class="field-hint">Override the preset's endpoint — useful for gateways or self-hosted proxies.</p>
+        </div>
+      }
+
+      @if (!currentPreset().needsKey) {
+        <div class="field">
+          <label class="label" for="api-key-adv">API Key</label>
+          <input
+            id="api-key-adv"
+            type="password"
+            class="input"
+            name="translora-api-key"
+            autocomplete="off"
+            spellcheck="false"
+            [ngModel]="apiKey()"
+            (ngModelChange)="apiKey.set($event)"
+            placeholder="Optional"
+          />
+          @if (apiKeyWarning()) {
+            <p class="field-warning">{{ apiKeyWarning() }}</p>
+          } @else {
+            <p class="field-hint">Optional — most local servers ignore this. Kept in memory for this tab only, and sent only to the API URL you configured.</p>
+          }
+        </div>
+      }
+
+      @if (providerType() === 'custom') {
+        <div class="field">
+          <label class="label" for="model-name-advanced">Model</label>
+          <input
+            id="model-name-advanced"
+            type="text"
+            class="input"
+            [ngModel]="modelName()"
+            (ngModelChange)="modelName.set($event)"
+            placeholder="Optional model name"
+          />
+          <p class="field-hint">Leave blank if your server picks a model automatically.</p>
+        </div>
+      }
+
+      <div class="field-grid">
+        <div class="field field-num">
+          <label class="label" for="batch-size">Batch size</label>
+          <input id="batch-size" type="number" class="input" min="3" max="50" [ngModel]="batchSize()" (ngModelChange)="setNumber('batchSize', $event)" />
+          <p class="field-hint">Blocks per request.</p>
+        </div>
+
+        <div class="field field-num">
+          <label class="label" for="concurrency">Concurrency</label>
+          <input id="concurrency" type="number" class="input" min="1" max="20" [ngModel]="concurrency()" (ngModelChange)="setNumber('concurrency', $event)" />
+          <p class="field-hint">Parallel requests per file.</p>
+        </div>
+
+        <div class="field field-num">
+          <label class="label" for="parallel-files">Parallel files</label>
+          <input id="parallel-files" type="number" class="input" min="1" max="10" [ngModel]="parallelFiles()" (ngModelChange)="setNumber('parallelFiles', $event)" />
+          <p class="field-hint">Files running at the same time.</p>
+        </div>
+
+        <div class="field field-num">
+          <label class="label" for="max-retries">Max retries</label>
+          <input id="max-retries" type="number" class="input" min="1" max="20" [ngModel]="maxRetries()" (ngModelChange)="setNumber('maxRetries', $event)" />
+          <p class="field-hint">Attempts before failing.</p>
+        </div>
+
+        <div class="field field-num">
+          <label class="label" for="scan-budget">Scan budget</label>
+          <input id="scan-budget" type="number" class="input" min="2000" max="200000" step="1000" [ngModel]="scanBudget()" (ngModelChange)="setNumber('scanBudget', $event)" />
+          <p class="field-hint">Chars sent to the prepass. Lower for tight-context local models, raise for full-file scans on large-context cloud models.</p>
+        </div>
+
+        <div class="field field-num">
+          <label class="label" for="context-overlap">Context overlap</label>
+          <input id="context-overlap" type="number" class="input" min="0" max="20" [ngModel]="contextOverlap()" (ngModelChange)="setNumber('contextOverlap', $event)" />
+          <p class="field-hint">Previous-batch blocks shown as read-only context. 0 disables.</p>
+        </div>
+      </div>
+
+      <div class="field-toggle">
+        <label class="toggle">
+          <input type="checkbox" [ngModel]="sendTemperature()" (ngModelChange)="sendTemperature.set($event)" />
+          <span>Send a temperature</span>
+        </label>
+        <p class="field-hint">Asks for temperature 0.1, so runs stay repeatable. Turn it off for an endpoint that only accepts its own default — otherwise the first request that is refused turns it off for you.</p>
+      </div>
+
+      <div class="field-grid">
+        <div class="field">
+          <label class="label" for="formality">Register</label>
+          <select id="formality" class="select" [ngModel]="formality()" (ngModelChange)="formality.set($event)">
+            @for (option of formalityOptions; track option.value) {
+              <option [value]="option.value">{{ option.label }}</option>
+            }
+          </select>
+          <p class="field-hint">Forces formal or informal address. Auto leaves the register to the model.</p>
+        </div>
+
+        <div class="field field-num">
+          <label class="label" for="max-line-chars">Max line chars</label>
+          <input id="max-line-chars" type="number" class="input" min="0" max="90" [ngModel]="maxLineChars() || null" (ngModelChange)="setNumber('maxLineChars', $event)" />
+          <p class="field-hint">Overrides the {{ targetLang() }} script default of {{ scriptDefaultChars() }}. Blank keeps it.</p>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="label" for="dialect">Target variant</label>
+        <input
+          id="dialect"
+          type="text"
+          class="input"
+          autocomplete="off"
+          spellcheck="false"
+          [maxlength]="dialectMaxLength"
+          [ngModel]="dialect()"
+          (ngModelChange)="setDialect($event)"
+          placeholder="e.g. Egyptian Arabic"
+        />
+        <p class="field-hint">Names the exact variant for the glossary scan and every batch. Blank lets the prepass infer one.</p>
+      </div>
+
+      <div class="field-toggle">
+        <label class="toggle">
+          <input type="checkbox" [ngModel]="review()" (ngModelChange)="review.set($event)" />
+          <span>Post-edit review pass</span>
+        </label>
+        <p class="field-hint">One extra LLM call per batch fixing gender/number/consistency. Doubles cost — disable on metered providers.</p>
+      </div>
+
+      <div class="field">
+        <label class="label" for="review-api-url">Review API URL</label>
+        <input
+          id="review-api-url"
+          type="text"
+          class="input"
+          name="translora-review-api-url"
+          autocomplete="off"
+          spellcheck="false"
+          [ngModel]="reviewApiUrl()"
+          (ngModelChange)="reviewApiUrl.set($event)"
+          placeholder="Same as the main endpoint"
+        />
+        <p class="field-hint">Quality is model-bound, and the review pass is where a stronger model pays off most per call. Blank keeps the main endpoint.</p>
+      </div>
+
+      <div class="field-grid">
+        <div class="field">
+          <label class="label" for="review-model">Review model</label>
+          <input
+            id="review-model"
+            type="text"
+            class="input"
+            autocomplete="off"
+            spellcheck="false"
+            [ngModel]="reviewModel()"
+            (ngModelChange)="reviewModel.set($event)"
+            placeholder="Same as the main model"
+          />
+          <p class="field-hint">Blank keeps the main model.</p>
+        </div>
+
+        <div class="field">
+          <label class="label" for="review-api-key">Review API key</label>
+          <input
+            id="review-api-key"
+            type="password"
+            class="input"
+            name="translora-review-api-key"
+            autocomplete="off"
+            spellcheck="false"
+            [ngModel]="reviewApiKey()"
+            (ngModelChange)="reviewApiKey.set($event)"
+            placeholder="Same as the main key"
+          />
+          <p class="field-hint">Kept in memory for this tab only, never stored.</p>
+        </div>
+      </div>
+
+      <p class="field-hint field-hint-standalone">{{ reviewProviderLabel() }}</p>
+
+      <div class="field-toggle">
+        <label class="toggle">
+          <input type="checkbox" [ngModel]="refineAttribution()" (ngModelChange)="refineAttribution.set($event)" />
+          <span>Refine speaker attribution</span>
+        </label>
+        <p class="field-hint">One small call per ambiguous scene to fix cross-gender addressee slips.</p>
+      </div>
+
+      <div class="field-toggle">
+        <label class="toggle">
+          <input type="checkbox" [ngModel]="reflow()" (ngModelChange)="reflow.set($event)" />
+          <span>Re-wrap lines to the source layout</span>
+        </label>
+        <p class="field-hint">Re-wraps each cue to the source's line count and the script's line limit, locally — no extra LLM call.</p>
+      </div>
+
+      <div class="field-toggle">
+        <label class="toggle">
+          <input type="checkbox" [ngModel]="fixFlagged()" (ngModelChange)="fixFlagged.set($event)" />
+          <span>Repair flagged batches</span>
+        </label>
+        <p class="field-hint">Re-issues the batches that ended with a warning — dropped tags, glossary drift, text that bled between cues — naming the exact problem. Kept only if fewer warnings remain. Rarest problem first, capped at 5% of a file, or 25% when one problem keeps recurring.</p>
+      </div>
+
+      <div class="field-toggle">
+        <label class="toggle">
+          <input type="checkbox" [ngModel]="verifyAdequacy()" (ngModelChange)="verifyAdequacy.set($event)" />
+          <span>Verify adequacy (back-translation)</span>
+        </label>
+        <p class="field-hint">Translates a fifth of the batches back to the source and flags cues that lost meaning, feeding them to the repair pass. Adds about 20% more calls.</p>
+      </div>
+
+      <div class="field-toggle">
+        <label class="toggle">
+          <input type="checkbox" [ngModel]="fullAttribution()" (ngModelChange)="fullAttribution.set($event)" />
+          <span>Full speaker attribution</span>
+        </label>
+        <p class="field-hint">Names the speaker in every scene with a cast, not only where two known genders meet. Adds about 20% more calls on a dialogue-heavy file.</p>
+      </div>
+    </div>
+
+    <div class="advanced-popover-footer">
+      <p class="advanced-hint">Requests = concurrency x parallel files.</p>
+      <div class="advanced-popover-actions">
+        <button class="btn-reset" type="button" (click)="resetDefaults()">Reset</button>
+        <button class="advanced-done" type="button" (click)="closeAdvanced()">Done</button>
+      </div>
+    </div>
+  </section>
+}

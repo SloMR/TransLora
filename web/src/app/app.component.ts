@@ -1,155 +1,119 @@
-import { Component, signal, computed, OnDestroy } from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import JSZip from 'jszip';
 import {
-  TranslationService,
-  ProviderConfig,
-  TranslationCancelledError,
-} from './core/translation.service';
-import {
-  DEFAULT_BATCH_SIZE,
-  DEFAULT_CONCURRENCY,
-  DEFAULT_CONTEXT_OVERLAP,
-  DEFAULT_MAX_RETRIES,
-  DEFAULT_PARALLEL_FILES,
-  DEFAULT_REFINE_ATTRIBUTION,
-  DEFAULT_REVIEW,
-  DEFAULT_SCAN_BUDGET,
-} from './core/constants';
-import { parseSubtitle } from './core/subtitle-formats';
+  Component,
+  OnDestroy,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
+import { AdvancedPanelComponent } from './advanced-panel/advanced-panel.component';
+import { SUBTITLE_EXTS, UploadedFile } from './core/file-types';
 import { LANGUAGES } from './core/languages';
-import { PROVIDER_PRESETS, PROVIDER_KEYS } from './core/providers';
-import {
-  SUBTITLE_EXTS,
-  SUBTITLE_ACCEPT,
-  UploadedFile,
-  FileStatus,
-} from './core/file-types';
-import { TimeTracker } from './core/time-tracker';
+import { describeCalls, projectRun } from './core/run-stats';
+import { TranslationRunnerService } from './core/translation-runner.service';
+import { FileIntakeComponent } from './file-intake/file-intake.component';
+import { ProviderFormComponent } from './provider-form/provider-form.component';
+import { RunSettings } from './run-settings';
+import { RunResultsComponent } from './run-results/run-results.component';
 
-const DEFAULTS = {
-  sourceLang: '',
-  targetLang: 'Arabic',
-  batchSize: DEFAULT_BATCH_SIZE,
-  concurrency: DEFAULT_CONCURRENCY,
-  parallelFiles: DEFAULT_PARALLEL_FILES,
-  maxRetries: DEFAULT_MAX_RETRIES,
-  contextOverlap: DEFAULT_CONTEXT_OVERLAP,
-  scanBudget: DEFAULT_SCAN_BUDGET,
-  refineAttribution: DEFAULT_REFINE_ATTRIBUTION,
-  review: DEFAULT_REVIEW,
-};
-
+// The page shell: theme, layout, and the wiring between the intake form, the
+// settings forms and the run queue.
 @Component({
   selector: 'app-root',
-  imports: [FormsModule],
+  imports: [
+    AdvancedPanelComponent,
+    FileIntakeComponent,
+    ProviderFormComponent,
+    RunResultsComponent,
+  ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss',
 })
 export class AppComponent implements OnDestroy {
-  subtitleAccept = SUBTITLE_ACCEPT;
   supportedFormats = SUBTITLE_EXTS.map((ext) => ext.slice(1).toUpperCase());
   languages = LANGUAGES;
-  providerKeys = PROVIDER_KEYS;
-  presets = PROVIDER_PRESETS;
 
-  sourceLang = signal(DEFAULTS.sourceLang);
-  targetLang = signal(DEFAULTS.targetLang);
+  settings = new RunSettings();
+  readonly runner = inject(TranslationRunnerService);
 
   files = signal<UploadedFile[]>([]);
-  dragOver = signal(false);
-
-  providerType = signal('custom');
-  apiUrl = signal('');
-  apiKey = signal('');
-  modelName = signal('');
-  showAdvanced = signal(false);
-  concurrency = signal(DEFAULTS.concurrency);
-  batchSize = signal(DEFAULTS.batchSize);
-  parallelFiles = signal(DEFAULTS.parallelFiles);
-  maxRetries = signal(DEFAULTS.maxRetries);
-  contextOverlap = signal(DEFAULTS.contextOverlap);
-  scanBudget = signal(DEFAULTS.scanBudget);
-  refineAttribution = signal(DEFAULTS.refineAttribution);
-  review = signal(DEFAULTS.review);
-
-  theme = signal<'light' | 'dark'>('light');
-
-  isTranslating = signal(false);
-  isCancelling = signal(false);
-  fileStatuses = signal<FileStatus[]>([]);
   errorMessage = signal('');
-  isZipping = signal(false);
+  showAdvanced = signal(false);
 
-  private workQueue: number[] = [];
-  private activeWorkers = 0;
-  private runController: AbortController | null = null;
-  private cancelRequested = false;
+  // Output names already saved; drives the unsaved-work warning.
+  private downloaded = signal<ReadonlySet<string>>(new Set<string>());
 
-  currentPreset = computed(() => PROVIDER_PRESETS[this.providerType()]);
+  private systemPrefersDark = signal(false);
+  private themeMedia: MediaQueryList | null = null;
+
+  theme = computed<'light' | 'dark'>(() => {
+    const pref = this.settings.themePreference();
+    if (pref !== 'system') return pref;
+    return this.systemPrefersDark() ? 'dark' : 'light';
+  });
+
+  themeToggleLabel = computed(() =>
+    this.theme() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode',
+  );
+
+  fileCountLabel = computed(() => {
+    const n = this.files().length;
+    return `${n} file${n === 1 ? '' : 's'}`;
+  });
 
   totalBlocks = computed(() =>
     this.files().reduce((sum, f) => sum + f.blockCount, 0)
   );
 
-  doneFiles = computed(() =>
-    this.fileStatuses().filter((f) => f.status === 'done')
-  );
-  failedFiles = computed(() =>
-    this.fileStatuses().filter((f) => f.status === 'failed')
-  );
-  inProgressFiles = computed(() =>
-    this.fileStatuses().filter((f) => f.status === 'translating')
-  );
-  pendingCount = computed(
-    () =>
-      this.fileStatuses().filter((f) => f.status === 'pending').length
-  );
+  // What the queued files would cost before anyone pays for it.
+  projection = computed(() => projectRun({
+    blockCounts: this.files().map((f) => f.blockCount),
+    batchSize: this.settings.batchSize(),
+    lanes: this.settings.concurrency() * this.settings.parallelFiles(),
+    review: this.settings.review(),
+    fixFlagged: this.settings.fixFlagged(),
+    verifyAdequacy: this.settings.verifyAdequacy(),
+  }));
 
-  overallProgressPercent = computed(() => {
-    const all = this.fileStatuses();
-    if (all.length === 0) return 0;
-    let sum = 0;
-    for (const f of all) {
-      if (f.status === 'done' || f.status === 'failed') {
-        sum += 1;
-      } else if (f.status === 'translating' && f.totalBatches) {
-        sum += (f.currentBatch ?? 0) / f.totalBatches;
-      }
-    }
-    return Math.round((sum / all.length) * 100);
+  projectionSummary = computed(() => {
+    const projected = this.projection();
+    if (projected.total === 0) return '';
+    const lanes = this.settings.concurrency() * this.settings.parallelFiles();
+    return `~${projected.total} LLM calls (${describeCalls(projected.calls)}) `
+      + `· about ${this.runner.tracker.formatMs(projected.estimateMs)} at `
+      + `${lanes} parallel request${lanes === 1 ? '' : 's'}.`;
   });
 
-  tracker = new TimeTracker(
-    this.doneFiles,
-    this.inProgressFiles,
-    this.pendingCount,
-  );
+  projectionCaveat = computed(() => {
+    const projected = this.projection();
+    if (projected.total === 0) return '';
+    return `Estimate only, at ${projected.secsPerCall}s per call. Review and `
+      + 'repair are upper bounds, and speaker-attribution calls are not '
+      + 'counted — how many scenes need one is known only after the prepass.';
+  });
 
   canTranslate = computed(() => {
     if (this.files().length === 0) return false;
-    if (this.isTranslating()) return false;
-    const preset = this.currentPreset();
-    if (preset.needsKey && !this.apiKey()) return false;
-    if (!this.apiUrl()) return false;
+    if (this.runner.isTranslating()) return false;
+    const preset = this.settings.currentPreset();
+    if (preset.needsKey && !this.settings.apiKey()) return false;
+    if (!this.settings.apiUrl()) return false;
     return true;
   });
-
-  canRetryFailed = computed(() => this.failedFiles().length > 0 && !this.isCancelling());
 
   translateButtonLabel = computed(() => {
     const fileCount = this.files().length;
     if (fileCount === 0) return 'Translate subtitles';
-    if (fileCount === 1) return `Translate to ${this.targetLang()}`;
-    return `Translate ${fileCount} files to ${this.targetLang()}`;
+    if (fileCount === 1) return `Translate to ${this.settings.targetLang()}`;
+    return `Translate ${fileCount} files to ${this.settings.targetLang()}`;
   });
 
   translateHint = computed(() => {
-    if (this.isCancelling()) {
+    if (this.runner.isCancelling()) {
       return 'Stopping translation and cancelling in-flight requests...';
     }
 
-    if (this.isTranslating()) {
+    if (this.runner.isTranslating()) {
       return 'Translation is running. Progress is shown below.';
     }
 
@@ -157,443 +121,144 @@ export class AppComponent implements OnDestroy {
       return 'Add subtitle files, then choose the provider and target language.';
     }
 
-    if (this.currentPreset().needsKey && !this.apiKey()) {
-      return `Enter your ${this.currentPreset().label} API key to continue.`;
+    if (this.settings.currentPreset().needsKey && !this.settings.apiKey()) {
+      return `Enter your ${this.settings.currentPreset().label} API key to continue.`;
     }
 
-    if (!this.apiUrl()) {
+    if (!this.settings.apiUrl()) {
       return 'Choose a provider or enter an API URL to continue.';
     }
 
-    return `Ready to translate ${this.files().length} file${this.files().length > 1 ? 's' : ''} to ${this.targetLang()}.`;
+    return `Ready to translate ${this.files().length} file${this.files().length > 1 ? 's' : ''} to ${this.settings.targetLang()}.`;
   });
 
-  apiKeyWarning = computed<string | null>(() => {
-    const raw = this.apiKey();
-    if (!raw || !this.currentPreset().needsKey) return null;
-    const k = raw.trim();
-    if (k !== raw) return 'Key has leading or trailing whitespace.';
-    if (/\s/.test(k)) return 'Key contains whitespace — it should be a single token.';
-    if (
-      (k.startsWith('"') && k.endsWith('"')) ||
-      (k.startsWith("'") && k.endsWith("'"))
-    ) {
-      return 'Remove the surrounding quotes.';
-    }
-    if (/^bearer\s/i.test(k)) return 'Remove the "Bearer " prefix — just paste the key.';
-    if (k.length < 20) return `Key looks too short (${k.length} chars).`;
-    return null;
-  });
-
-  isDone = computed(
+  // Translations live only in memory, so leaving the page throws them away.
+  hasUnsavedWork = computed(
     () =>
-      !this.isTranslating() &&
-      (this.doneFiles().length > 0 || this.failedFiles().length > 0)
+      this.runner.isTranslating() ||
+      this.runner.doneFiles().some((f) => !!f.content && !this.downloaded().has(f.outputName)),
   );
 
-  hasResults = computed(
-    () =>
-      this.isTranslating() ||
-      this.doneFiles().length > 0 ||
-      this.failedFiles().length > 0
-  );
+  private onSystemThemeChange = (event: MediaQueryListEvent) => {
+    this.systemPrefersDark.set(event.matches);
+  };
 
-  constructor(private translationService: TranslationService) {
+  private onBeforeUnload = (event: BeforeUnloadEvent) => {
+    if (!this.hasUnsavedWork()) return;
+    event.preventDefault();
+    // Older browsers only show the prompt when returnValue is set.
+    event.returnValue = '';
+  };
+
+  constructor() {
     this.initTheme();
-    this.onProviderTypeChange('custom');
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', this.onBeforeUnload);
+    }
+
+    this.runner.connect({
+      files: this.files,
+      outputName: (name) => this.makeOutputName(name),
+      request: () => ({
+        provider: {
+          apiUrl: this.settings.apiUrl(),
+          apiKey: this.settings.apiKey(),
+          model: this.settings.modelName(),
+        },
+        sourceLang: this.settings.sourceLang(),
+        targetLang: this.settings.targetLang(),
+        batchSize: this.settings.batchSize(),
+        concurrency: this.settings.concurrency(),
+        maxRetries: this.settings.maxRetries(),
+        parallelFiles: this.settings.parallelFiles(),
+        quality: {
+          contextOverlap: this.settings.contextOverlap(),
+          scanBudget: this.settings.scanBudget(),
+          refineAttribution: this.settings.refineAttribution(),
+          review: this.settings.review(),
+          reflow: this.settings.reflow(),
+          fixFlagged: this.settings.fixFlagged(),
+          verifyAdequacy: this.settings.verifyAdequacy(),
+          fullAttribution: this.settings.fullAttribution(),
+          sendTemperature: this.settings.sendTemperature(),
+          formality: this.settings.formality(),
+          dialect: this.settings.dialect(),
+          maxLineChars: this.settings.maxLineChars(),
+          reviewApiUrl: this.settings.reviewApiUrl(),
+          reviewApiKey: this.settings.reviewApiKey(),
+          reviewModel: this.settings.reviewModel(),
+        },
+      }),
+    });
+
+    effect(() => this.applyTheme());
+    effect(() => this.settings.persist());
   }
 
   ngOnDestroy() {
-    this.cancelRequested = true;
-    this.workQueue = [];
-    this.runController?.abort();
-    this.tracker.destroy();
+    this.runner.destroy();
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('beforeunload', this.onBeforeUnload);
+    }
+    this.themeMedia?.removeEventListener('change', this.onSystemThemeChange);
   }
 
   private initTheme() {
-    if (typeof window === 'undefined') {
-      this.setTheme('light');
-      return;
+    if (typeof window !== 'undefined') {
+      this.themeMedia = window.matchMedia?.('(prefers-color-scheme: dark)') ?? null;
+      if (this.themeMedia) {
+        this.systemPrefersDark.set(this.themeMedia.matches);
+        this.themeMedia.addEventListener('change', this.onSystemThemeChange);
+      }
     }
 
-    const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
-    this.setTheme(prefersDark ? 'dark' : 'light');
+    this.applyTheme();
   }
 
   toggleTheme() {
-    this.setTheme(this.theme() === 'dark' ? 'light' : 'dark');
+    this.settings.themePreference.set(this.theme() === 'dark' ? 'light' : 'dark');
   }
 
-  private setTheme(next: 'light' | 'dark') {
-    this.theme.set(next);
+  private applyTheme() {
     if (typeof document !== 'undefined') {
-      document.documentElement.setAttribute('data-theme', next);
+      document.documentElement.setAttribute('data-theme', this.theme());
     }
   }
 
-  onDragOver(event: DragEvent) {
-    event.preventDefault();
-    event.stopPropagation();
-    this.dragOver.set(true);
+  onProviderTypeChange(type: string) {
+    this.settings.onProviderTypeChange(type);
+    this.showAdvanced.set(false);
   }
 
-  onDragLeave(event: DragEvent) {
-    event.preventDefault();
-    event.stopPropagation();
-    this.dragOver.set(false);
-  }
-
-  onDrop(event: DragEvent) {
-    event.preventDefault();
-    event.stopPropagation();
-    this.dragOver.set(false);
-    const fileList = event.dataTransfer?.files;
-    if (fileList) this.handleFiles(fileList);
-  }
-
-  onFileSelect(event: Event) {
-    const input = event.target as HTMLInputElement;
-    if (input.files) {
-      this.handleFiles(input.files);
-      input.value = '';
-    }
-  }
-
-  async handleFiles(fileList: FileList) {
-    this.errorMessage.set('');
-    const incoming: UploadedFile[] = [];
-    const existingNames = new Set(this.files().map((f) => f.name));
-    const rejected: Array<{ name: string; reason: string }> = [];
-
-    for (const file of Array.from(fileList)) {
-      const lower = file.name.toLowerCase();
-      if (!SUBTITLE_EXTS.some((ext) => lower.endsWith(ext))) {
-        rejected.push({ name: file.name, reason: 'unsupported extension' });
-        continue;
-      }
-      if (existingNames.has(file.name)) continue;
-
-      const content = await this.readFile(file);
-      try {
-        const doc = parseSubtitle(file.name, content);
-        if (doc.blocks.length === 0) {
-          rejected.push({ name: file.name, reason: 'no subtitle blocks found' });
-          continue;
-        }
-        incoming.push({
-          name: file.name,
-          blockCount: doc.blocks.length,
-          doc,
-        });
-      } catch (err: any) {
-        rejected.push({
-          name: file.name,
-          reason: err?.message ?? 'could not be parsed',
-        });
-      }
-    }
-
-    if (incoming.length === 0 && this.files().length === 0) {
-      this.errorMessage.set(
-        rejected.length > 0
-          ? this.formatRejected(rejected)
-          : `Please select subtitle files (${SUBTITLE_EXTS.join(', ')}).`,
-      );
-      return;
-    }
-
-    if (rejected.length > 0) {
-      this.errorMessage.set(this.formatRejected(rejected));
-    }
-
+  onFilesAdded(incoming: UploadedFile[]) {
     this.files.update((current) => [...current, ...incoming]);
     this.clearRunState(false);
   }
 
-  private formatRejected(rejected: Array<{ name: string; reason: string }>): string {
-    const details = rejected.map((r) => `${r.name} (${r.reason})`).join('; ');
-    return `Skipped: ${details}.`;
-  }
-
   removeFile(index: number) {
     this.files.update((f) => f.filter((_, i) => i !== index));
-    this.clearRunState(true);
-  }
-
-  private readFile(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsText(file);
-    });
-  }
-
-  onProviderTypeChange(type: string) {
-    this.providerType.set(type);
-    const preset = PROVIDER_PRESETS[type];
-    this.apiUrl.set(preset.apiUrl);
-    this.apiKey.set('');
-    this.modelName.set(preset.defaultModel);
-    this.concurrency.set(preset.defaultConcurrency);
-    this.showAdvanced.set(false);
-  }
-
-  resetDefaults() {
-    this.batchSize.set(DEFAULTS.batchSize);
-    this.concurrency.set(this.currentPreset().defaultConcurrency);
-    this.parallelFiles.set(DEFAULTS.parallelFiles);
-    this.maxRetries.set(DEFAULTS.maxRetries);
-    this.contextOverlap.set(DEFAULTS.contextOverlap);
-    this.scanBudget.set(DEFAULTS.scanBudget);
-    this.refineAttribution.set(DEFAULTS.refineAttribution);
-    this.review.set(DEFAULTS.review);
-  }
-
-  swapLanguages() {
-    const source = this.sourceLang();
-    if (!source) return;
-    this.sourceLang.set(this.targetLang());
-    this.targetLang.set(source);
+    this.runner.removeAt(index);
+    this.errorMessage.set('');
   }
 
   startTranslation() {
     if (!this.canTranslate()) return;
 
     this.errorMessage.set('');
-    this.isCancelling.set(false);
-
-    // Initialize statuses (fresh run)
-    this.fileStatuses.set(
-      this.files().map((f) => ({
-        name: f.name,
-        outputName: this.makeOutputName(f.name),
-        blockCount: f.blockCount,
-        status: 'pending' as const,
-      }))
-    );
-    this.enqueue(this.files().map((_, i) => i), false);
+    this.downloaded.set(new Set<string>());
+    this.runner.start();
   }
 
   retryFailed() {
-    if (!this.canRetryFailed()) return;
+    if (!this.runner.canRetryFailed()) return;
 
     this.errorMessage.set('');
-    this.isCancelling.set(false);
-
-    const retryIndices: number[] = [];
-    this.fileStatuses.update((statuses) =>
-      statuses.map((s, i) => {
-        if (s.status !== 'failed') return s;
-        retryIndices.push(i);
-        return {
-          ...s,
-          status: 'pending' as const,
-          currentBatch: undefined,
-          totalBatches: undefined,
-          error: undefined,
-          timeMs: undefined,
-        };
-      })
-    );
-
-    if (retryIndices.length === 0) return;
-
-    this.enqueue(retryIndices, true);
+    this.runner.retryFailed();
   }
 
-  // Pushes indices onto the shared queue and ensures enough workers are running.
-  // Safe to call mid-run: idle workers pick up new items, or fresh ones spawn
-  // up to parallelFiles().
-  private enqueue(indices: number[], isRetry: boolean) {
-    if (indices.length === 0) return;
-
-    const wasIdle = this.activeWorkers === 0;
-    this.workQueue.push(...indices);
-
-    if (wasIdle) {
-      this.cancelRequested = false;
-      this.runController = new AbortController();
-      if (isRetry) {
-        this.tracker.resume();
-      } else {
-        this.tracker.begin();
-      }
-      this.isTranslating.set(true);
-      this.isCancelling.set(false);
-    }
-
-    if (!this.runController) return;
-
-    const provider: ProviderConfig = {
-      apiUrl: this.apiUrl(),
-      apiKey: this.apiKey(),
-      model: this.modelName(),
-    };
-
-    const desired = Math.min(this.parallelFiles(), this.workQueue.length + this.activeWorkers);
-    while (this.activeWorkers < desired) {
-      this.spawnWorker(provider, this.runController.signal);
-    }
-  }
-
-  cancelTranslation() {
-    if (!this.isTranslating() || this.isCancelling()) return;
-
-    this.cancelRequested = true;
-    this.isCancelling.set(true);
-    this.workQueue = [];
-    this.runController?.abort();
-  }
-
-  private spawnWorker(provider: ProviderConfig, cancelSignal: AbortSignal) {
-    this.activeWorkers++;
-    void (async () => {
-      try {
-        while (this.workQueue.length > 0 && !cancelSignal.aborted) {
-          const idx = this.workQueue.shift()!;
-          await this.translateOne(idx, provider, cancelSignal);
-        }
-      } finally {
-        this.activeWorkers--;
-        if (this.activeWorkers === 0 && this.workQueue.length === 0) {
-          const cancelled = this.cancelRequested || cancelSignal.aborted;
-          this.runController = null;
-          this.tracker.finish();
-
-          if (cancelled) {
-            this.cancelRequested = false;
-            // Mark still-pending/translating entries as failed so they remain
-            // retryable from the UI.
-            this.fileStatuses.update((arr) =>
-              arr.map((s) =>
-                s.status === 'pending' || s.status === 'translating'
-                  ? {
-                      ...s,
-                      status: 'failed' as const,
-                      error: 'Cancelled',
-                      currentBatch: undefined,
-                      totalBatches: undefined,
-                    }
-                  : s,
-              ),
-            );
-          }
-
-          this.isCancelling.set(false);
-          this.isTranslating.set(false);
-        }
-      }
-    })();
-  }
-
-  private async translateOne(idx: number, provider: ProviderConfig, cancelSignal: AbortSignal) {
-    const f = this.files()[idx];
-    const fileStart = performance.now();
-
-    if (cancelSignal.aborted || this.cancelRequested) return;
-    this.updateFileStatus(idx, { status: 'translating' });
-
-    try {
-      const content = await this.translationService.translateDocument(
-        f.doc,
-        this.sourceLang(),
-        this.targetLang(),
-        provider,
-        this.batchSize(),
-        this.concurrency(),
-        this.maxRetries(),
-        (progress) => {
-          if (cancelSignal.aborted || this.cancelRequested) return;
-          this.updateFileStatus(idx, {
-            currentBatch: progress.currentBatch,
-            totalBatches: progress.totalBatches,
-          });
-        },
-        cancelSignal,
-        {
-          contextOverlap: this.contextOverlap(),
-          scanBudget: this.scanBudget(),
-          refineAttribution: this.refineAttribution(),
-          review: this.review(),
-        },
-      );
-
-      if (cancelSignal.aborted || this.cancelRequested) return;
-      this.updateFileStatus(idx, {
-        status: 'done',
-        content,
-        timeMs: performance.now() - fileStart,
-      });
-    } catch (err: any) {
-      if (
-        err instanceof TranslationCancelledError ||
-        cancelSignal.aborted ||
-        this.cancelRequested
-      ) {
-        return;
-      }
-
-      this.updateFileStatus(idx, {
-        status: 'failed',
-        error: err?.message ?? 'Translation failed',
-        timeMs: performance.now() - fileStart,
-      });
-    }
-  }
-
-  private updateFileStatus(idx: number, update: Partial<FileStatus>) {
-    this.fileStatuses.update((arr) => {
-      const next = [...arr];
-      next[idx] = { ...next[idx], ...update };
-      return next;
-    });
-  }
-
-  downloadFile(f: FileStatus) {
-    if (f.content) this.downloadBlob(f.content, f.outputName);
-  }
-
-  async downloadAll() {
-    const done = this.doneFiles();
-    if (done.length === 0 || this.isZipping()) return;
-
-    this.isZipping.set(true);
-    try {
-      const zip = new JSZip();
-      for (const f of done) {
-        if (f.content) zip.file(f.outputName, f.content);
-      }
-      const blob = await zip.generateAsync({
-        type: 'blob',
-        compression: 'DEFLATE',
-        compressionOptions: { level: 6 },
-      });
-      this.downloadBlobRaw(blob, this.makeZipName());
-    } finally {
-      this.isZipping.set(false);
-    }
-  }
-
-  private makeZipName(): string {
-    const d = new Date();
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
-    return `translora-${this.targetLangCode()}-${stamp}.zip`;
-  }
-
-  private downloadBlob(content: string, filename: string) {
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    this.downloadBlobRaw(blob, filename);
-  }
-
-  private downloadBlobRaw(blob: Blob, filename: string) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+  markDownloaded(names: string[]) {
+    this.downloaded.update((seen) => new Set([...seen, ...names]));
   }
 
   reset() {
@@ -602,9 +267,8 @@ export class AppComponent implements OnDestroy {
   }
 
   private clearRunState(clearError: boolean) {
-    this.workQueue = [];
-    this.fileStatuses.set([]);
-    this.tracker.reset();
+    this.runner.clear();
+    this.downloaded.set(new Set<string>());
     if (clearError) {
       this.errorMessage.set('');
     }
@@ -616,14 +280,9 @@ export class AppComponent implements OnDestroy {
     return m ? `${m[1]}.${code}${m[2]}` : `${name}.${code}`;
   }
 
-  private targetLangCode(): string {
-    const name = this.targetLang();
+  targetLangCode(): string {
+    const name = this.settings.targetLang();
     return this.languages.find((l) => l.name === name)?.code
       ?? name.toLowerCase().slice(0, 2);
-  }
-
-  fileProgressPercent(f: FileStatus): number {
-    if (!f.totalBatches) return 0;
-    return Math.round(((f.currentBatch ?? 0) / f.totalBatches) * 100);
   }
 }
