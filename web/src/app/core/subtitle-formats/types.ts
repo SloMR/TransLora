@@ -10,12 +10,12 @@ export interface SubtitleDocument {
   rebuild(translated: SubtitleBlock[]): string;
 }
 
-export type { SubtitleBlock };
-
-export function pad2(n: number): string {
-  return String(n).padStart(2, '0');
-}
-
-export function pad3(n: number): string {
-  return String(n).padStart(3, '0');
+export function msToSrt(ms: number): string {
+  const total = Math.max(0, Math.floor(ms));
+  const pad = (value: number, width: number) => String(value).padStart(width, '0');
+  return (
+    `${pad(Math.floor(total / 3_600_000), 2)}:` +
+    `${pad(Math.floor(total / 60_000) % 60, 2)}:` +
+    `${pad(Math.floor(total / 1000) % 60, 2)},${pad(total % 1000, 3)}`
+  );
 }
