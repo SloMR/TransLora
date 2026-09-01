@@ -3,10 +3,17 @@ name: Create Release
 on:
   push:
     tags:
-      - '*/*' # Matches component/version (e.g. web/0.1.0, cli/0.1.0)
+      # Component/version only: a branch-shaped tag must never publish a release.
+      - 'web/[0-9]+.[0-9]+.[0-9]+'
+      - 'cli/[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
   contents: write
+
+# Two tag pushes must not race on `gh release create`, so queue instead of cancel.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -21,8 +28,15 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Verify tag matches the component's version files
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: bash scripts/check-versions.sh "$TAG_NAME"
+
+      # TAG_NAME via env, not `${{ }}`: git allows `$` and backticks in tag names.
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
-        run: bash scripts/create-releases.sh --apply --tag "${{ github.ref_name }}"
+          TAG_NAME: ${{ github.ref_name }}
+        run: bash scripts/create-releases.sh --apply --tag "$TAG_NAME"
