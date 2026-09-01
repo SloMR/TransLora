@@ -1,302 +1,520 @@
 [
  {
   "n": 1,
+  "lang": "Arabic",
   "ts": "00:00:00,000 --> 00:00:02,000",
   "en": "Night Shift - episode three\nhttp://example.test/subs",
-  "ar": "نوبة الليل - الحلقة الثالثة\nhttp://example.test/subs"
+  "target": "نوبة الليل - الحلقة الثالثة\nhttp://example.test/subs"
  },
  {
   "n": 2,
+  "lang": "Arabic",
   "ts": "00:00:03,000 --> 00:00:05,000",
   "en": "- Are you awake?\n- Barely.",
-  "ar": "- هل أنت مستيقظ؟\n- بالكاد."
+  "target": "- هل أنت مستيقظ؟\n- بالكاد."
  },
  {
   "n": 3,
+  "lang": "Arabic",
   "ts": "00:00:06,000 --> 00:00:08,000",
   "en": "- Did the harbour master call?\n- Not yet, he did not.",
-  "ar": "- هل اتصل رئيس الميناء؟ - ليس بعد."
+  "target": "- هل اتصل رئيس الميناء؟ - ليس بعد."
  },
  {
   "n": 4,
+  "lang": "Arabic",
   "ts": "00:00:09,000 --> 00:00:11,000",
   "en": "- Where is Omar tonight?\n- Down at the gate.",
-  "ar": "أين عمر الليلة؟\nهو عند البوابة."
+  "target": "أين عمر الليلة؟\nهو عند البوابة."
  },
  {
   "n": 5,
+  "lang": "Arabic",
   "ts": "00:00:12,000 --> 00:00:14,000",
   "en": "The lights went out at midnight.",
-  "ar": "<i></i>انطفأت الأضواء عند الفجر."
+  "target": "<i></i>انطفأت الأضواء عند الفجر."
  },
  {
   "n": 6,
+  "lang": "Arabic",
   "ts": "00:00:15,000 --> 00:00:17,000",
   "en": "<i>Nobody answered the radio.</i>",
-  "ar": "لم يجب أحد على اللاسلكي."
+  "target": "لم يجب أحد على اللاسلكي."
  },
  {
   "n": 7,
+  "lang": "Arabic",
   "ts": "00:00:18,000 --> 00:00:20,000",
   "en": "The tide will turn before dawn\nand the gate will be locked.",
-  "ar": "سيتغير المد قبل الفجر وتغلق البوابة عند ذلك الوقت."
+  "target": "سيتغير المد قبل الفجر وتغلق البوابة عند ذلك الوقت."
  },
  {
   "n": 8,
+  "lang": "Arabic",
   "ts": "00:00:21,000 --> 00:00:23,000",
   "en": "I told them the paperwork was already filed.",
-  "ar": "أخبرتهم أن الأوراق قد قدمت بالفعل إلى المكتب الرئيسي."
+  "target": "أخبرتهم أن الأوراق قد قدمت بالفعل إلى المكتب الرئيسي."
  },
  {
   "n": 9,
+  "lang": "Arabic",
   "ts": "00:00:24,000 --> 00:00:26,000",
   "en": "The keys are in the top drawer.",
-  "ar": "المفاتيح في الدرج العلوي."
+  "target": "المفاتيح في الدرج العلوي."
  },
  {
   "n": 10,
+  "lang": "Arabic",
   "ts": "00:00:27,000 --> 00:00:29,000",
   "en": "Get away from that crane!",
-  "ar": "ابتعد عن تلك الرافعة."
+  "target": "ابتعد عن تلك الرافعة."
  },
  {
   "n": 11,
+  "lang": "Arabic",
   "ts": "00:00:30,000 --> 00:00:32,000",
   "en": "The manifest says the crate is from Beijing.",
-  "ar": "تقول القائمة إن الصندوق قادم من 北京."
+  "target": "تقول القائمة إن الصندوق قادم من 北京."
  },
  {
   "n": 12,
+  "lang": "Arabic",
   "ts": "00:00:33,000 --> 00:00:35,000",
   "en": "He is waiting in the motel lobby.",
-  "ar": "هو ينتظر في بهو المotel."
+  "target": "هو ينتظر في بهو المotel."
  },
  {
   "n": 13,
+  "lang": "Arabic",
   "ts": "00:00:36,000 --> 00:00:38,000",
   "en": "And Joey locked the door behind him.",
-  "ar": "وjoey أغلق الباب خلفه."
+  "target": "وjoey أغلق الباب خلفه."
  },
  {
   "n": 14,
+  "lang": "Arabic",
   "ts": "00:00:39,000 --> 00:00:41,000",
   "en": "The radio is a Marlin 400.",
-  "ar": "الجهاز هو Marlin 400."
+  "target": "الجهاز هو Marlin 400."
  },
  {
   "n": 15,
+  "lang": "Arabic",
   "ts": "00:00:42,000 --> 00:00:44,000",
   "en": "The log book is on the shelf.\r\nCheck the last page.",
-  "ar": "دفتر السجل على الرف.\r\nتحقق من الصفحة الأخيرة."
+  "target": "دفتر السجل على الرف.\r\nتحقق من الصفحة الأخيرة."
  },
  {
   "n": 16,
+  "lang": "Arabic",
   "ts": "00:00:45,000 --> 00:00:47,000",
   "en": "The coffee machine is broken again.",
-  "ar": "آلة القهوة معطلة مرة أخرى."
+  "target": "آلة القهوة معطلة مرة أخرى."
  },
  {
   "n": 17,
+  "lang": "Arabic",
   "ts": "00:00:48,000 --> 00:00:50,000",
   "en": "Then I will make coffee at home.",
-  "ar": "إذن سأعد القهوة في المنزل."
+  "target": "إذن سأعد القهوة في المنزل."
  },
  {
   "n": 18,
+  "lang": "Arabic",
   "ts": "00:00:51,000 --> 00:00:53,000",
   "en": "Our harbour master signed the form.",
-  "ar": "وقع رئيس الميناء على الاستمارة."
+  "target": "وقع رئيس الميناء على الاستمارة."
  },
  {
   "n": 19,
+  "lang": "Arabic",
   "ts": "00:00:54,000 --> 00:00:56,000",
   "en": "The night shift starts in ten minutes.",
-  "ar": "تبدأ نوبة الليل بعد عشر دقائق."
+  "target": "تبدأ نوبة الليل بعد عشر دقائق."
  },
  {
   "n": 20,
+  "lang": "Arabic",
   "ts": "00:00:57,000 --> 00:00:59,000",
   "en": "Did you check the west gate?",
-  "ar": "هل تحققت من البوابة الغربية."
+  "target": "هل تحققت من البوابة الغربية."
  },
  {
   "n": 21,
+  "lang": "Arabic",
   "ts": "00:01:00,000 --> 00:01:02,000",
   "en": "Nadia wants the log before she leaves.",
-  "ar": "تريد نادية السجل قبل أن تغادر."
+  "target": "تريد نادية السجل قبل أن تغادر."
  },
  {
   "n": 22,
+  "lang": "Arabic",
   "ts": "00:01:03,000 --> 00:01:05,000",
   "en": "She read the whole page out loud.",
-  "ar": "قَرَأَتْ الصَّفْحَةَ بِصَوْتٍ عَالٍ."
+  "target": "قَرَأَتْ الصَّفْحَةَ بِصَوْتٍ عَالٍ."
  },
  {
   "n": 23,
+  "lang": "Arabic",
   "ts": "00:01:06,000 --> 00:01:08,000",
   "en": "A harbour master never sleeps.",
-  "ar": "رئيس الميناء لا ينام أبدا."
+  "target": "رئيس الميناء لا ينام أبدا."
  },
  {
   "n": 24,
+  "lang": "Arabic",
   "ts": "00:01:09,000 --> 00:01:11,000",
   "en": "All right, get the lantern.",
-  "ar": "حسنا احضر الفانوس."
+  "target": "حسنا احضر الفانوس."
  },
  {
   "n": 25,
+  "lang": "Arabic",
   "ts": "00:01:12,000 --> 00:01:14,000",
   "en": "Okay, but hurry up now.",
-  "ar": "حسنا اسرع."
+  "target": "حسنا اسرع."
  },
  {
   "n": 26,
+  "lang": "Arabic",
   "ts": "00:01:15,000 --> 00:01:17,000",
   "en": "I am on night shift again.",
-  "ar": "أنا في نوبة الليل مرة أخرى."
+  "target": "أنا في نوبة الليل مرة أخرى."
  },
  {
   "n": 27,
+  "lang": "Arabic",
   "ts": "00:01:18,000 --> 00:01:20,000",
   "en": "Harbour master Reyes wants the log.",
-  "ar": "رئيس الميناء رييس يريد السجل."
+  "target": "رئيس الميناء رييس يريد السجل."
  },
  {
   "n": 28,
+  "lang": "Arabic",
   "ts": "00:01:21,000 --> 00:01:23,000",
   "en": "The crane has been idle since six.",
-  "ar": "الرافعة متوقفة منذ الساعة السادسة."
+  "target": "الرافعة متوقفة منذ الساعة السادسة."
  },
  {
   "n": 29,
+  "lang": "Arabic",
   "ts": "00:01:24,000 --> 00:01:26,000",
   "en": "Nobody logged the last delivery.",
-  "ar": "لم يسجل أحد التسليم الأخير."
+  "target": "لم يسجل أحد التسليم الأخير."
  },
  {
   "n": 30,
+  "lang": "Arabic",
   "ts": "00:01:27,000 --> 00:01:29,000",
   "en": "I promised the crew we would finish by two.",
-  "ar": "وعدت الطاقم أن ننتهي بحلول الثانية وقال إن البوابة تغلق منتصف الليل."
+  "target": "وعدت الطاقم أن ننتهي بحلول الثانية وقال إن البوابة تغلق منتصف الليل."
  },
  {
   "n": 31,
+  "lang": "Arabic",
   "ts": "00:01:30,000 --> 00:01:32,000",
   "en": "He said the gate closes at midnight.",
-  "ar": "منتصف الليل."
+  "target": "منتصف الليل."
  },
  {
   "n": 32,
+  "lang": "Arabic",
   "ts": "00:01:33,000 --> 00:01:35,000",
   "en": "Tell the harbour master we are ready.",
-  "ar": "أخبر رئيس الميناء أننا جاهزون."
+  "target": "أخبر رئيس الميناء أننا جاهزون."
  },
  {
   "n": 33,
+  "lang": "Arabic",
   "ts": "00:01:36,000 --> 00:01:38,000",
   "en": "Every night shift ends the same way.",
-  "ar": "كل نوبة الليل تنتهي بالطريقة نفسها."
+  "target": "كل نوبة الليل تنتهي بالطريقة نفسها."
  },
  {
   "n": 34,
+  "lang": "Arabic",
   "ts": "00:01:39,000 --> 00:01:41,000",
   "en": "Omar left his jacket on the chair.",
-  "ar": "ترك عمر سترته على الكرسي."
+  "target": "ترك عمر سترته على الكرسي."
  },
  {
   "n": 35,
+  "lang": "Arabic",
   "ts": "00:01:42,000 --> 00:01:44,000",
   "en": "The harbour master called twice tonight.",
-  "ar": "اتصل رئيس الميناء مرتين الليلة."
+  "target": "اتصل رئيس الميناء مرتين الليلة."
  },
  {
   "n": 36,
+  "lang": "Arabic",
   "ts": "00:01:45,000 --> 00:01:47,000",
   "en": "Put the crate down before you drop it.",
-  "ar": "ضع الصندوق قبل أن تسقطه."
+  "target": "ضع الصندوق قبل أن تسقطه."
  },
  {
   "n": 37,
+  "lang": "Arabic",
   "ts": "00:01:48,000 --> 00:01:50,000",
   "en": "Nadia says the west gate is jammed.",
-  "ar": "تقول نادية إن البوابة الغربية عالقة."
+  "target": "تقول نادية إن البوابة الغربية عالقة."
  },
  {
   "n": 38,
+  "lang": "Arabic",
   "ts": "00:01:51,000 --> 00:01:53,000",
   "en": "We can finish the paperwork tomorrow.",
-  "ar": "يمكننا إنهاء الأوراق غدا."
+  "target": "يمكننا إنهاء الأوراق غدا."
  },
  {
   "n": 39,
+  "lang": "Arabic",
   "ts": "00:01:54,000 --> 00:01:56,000",
   "en": "Omar, the west gate is open.",
-  "ar": "عمر البوابة الغربية مفتوحة."
+  "target": "عمر البوابة الغربية مفتوحة."
  },
  {
   "n": 40,
+  "lang": "Arabic",
   "ts": "00:01:57,000 --> 00:01:59,000",
   "en": "The last ferry left an hour ago.",
-  "ar": "غادرت آخر عبارة قبل ساعة."
+  "target": "غادرت آخر عبارة قبل ساعة."
  },
  {
   "n": 41,
+  "lang": "Arabic",
   "ts": "00:02:00,000 --> 00:02:02,000",
   "en": "Omar closed the gate at last.",
-  "ar": "أَغْلَقَ عُمَرُ البَوَّابَةَ أَخِيرًا."
+  "target": "أَغْلَقَ عُمَرُ البَوَّابَةَ أَخِيرًا."
  },
  {
   "n": 42,
+  "lang": "Arabic",
   "ts": "00:02:03,000 --> 00:02:05,000",
   "en": "Nadia signed the book and left.",
-  "ar": "وَقَّعَتْ نَادِيَةُ وَغَادَرَتْ."
+  "target": "وَقَّعَتْ نَادِيَةُ وَغَادَرَتْ."
  },
  {
   "n": 43,
+  "lang": "Arabic",
   "ts": "00:02:06,000 --> 00:02:08,000",
   "en": "The harbour was quiet after that.",
-  "ar": "كَانَ المِينَاءُ هَادِئًا بَعْدَ ذَلِكَ."
+  "target": "كَانَ المِينَاءُ هَادِئًا بَعْدَ ذَلِكَ."
  },
  {
   "n": 44,
+  "lang": "Arabic",
   "ts": "00:02:09,000 --> 00:02:11,000",
   "en": "Rain started before the shift ended.",
-  "ar": "بَدَأَ المَطَرُ قَبْلَ النَّوْبَةِ."
+  "target": "بَدَأَ المَطَرُ قَبْلَ النَّوْبَةِ."
  },
  {
   "n": 45,
+  "lang": "Arabic",
   "ts": "00:02:12,000 --> 00:02:14,000",
   "en": "Nobody spoke on the way home.",
-  "ar": "لَمْ يَتَكَلَّمْ أَحَدٌ فِي الطَّرِيقِ."
+  "target": "لَمْ يَتَكَلَّمْ أَحَدٌ فِي الطَّرِيقِ."
  },
  {
   "n": 46,
+  "lang": "Arabic",
   "ts": "00:02:15,000 --> 00:02:17,000",
   "en": "The lamps went out one by one.",
-  "ar": "انْطَفَأَتْ المَصَابِيحُ تِبَاعًا."
+  "target": "انْطَفَأَتْ المَصَابِيحُ تِبَاعًا."
  },
  {
   "n": 47,
+  "lang": "Arabic",
   "ts": "00:02:18,000 --> 00:02:20,000",
   "en": "A dog barked somewhere behind us.",
-  "ar": "نَبَحَ كَلْبٌ فِي مَكَانٍ خَلْفَنَا."
+  "target": "نَبَحَ كَلْبٌ فِي مَكَانٍ خَلْفَنَا."
  },
  {
   "n": 48,
+  "lang": "Arabic",
   "ts": "00:02:21,000 --> 00:02:23,000",
   "en": "The keys are back in the drawer.",
-  "ar": "المَفَاتِيحُ عَادَتْ إِلَى الدُّرْجِ."
+  "target": "المَفَاتِيحُ عَادَتْ إِلَى الدُّرْجِ."
  },
  {
   "n": 49,
+  "lang": "Arabic",
   "ts": "00:02:24,000 --> 00:02:26,000",
   "en": "Tomorrow the crane will run again.",
-  "ar": "غَدًا سَتَعْمَلُ الرَّافِعَةُ."
+  "target": "غَدًا سَتَعْمَلُ الرَّافِعَةُ."
  },
  {
   "n": 50,
+  "lang": "Arabic",
   "ts": "00:02:27,000 --> 00:02:29,000",
   "en": "Good night, and thank you.",
-  "ar": "تُصْبِحُ عَلَى خَيْرٍ وَشُكْرًا لَكَ."
+  "target": "تُصْبِحُ عَلَى خَيْرٍ وَشُكْرًا لَكَ."
+ },
+ {
+  "n": 1,
+  "lang": "Japanese",
+  "ts": "00:00:00,000 --> 00:00:02,000",
+  "en": "The harbour master said he filed the papers at midnight.",
+  "target": "港長は真夜中までに書類を出したと言っていた。"
+ },
+ {
+  "n": 2,
+  "lang": "Japanese",
+  "ts": "00:00:03,000 --> 00:00:05,000",
+  "en": "The tide turns before dawn\nand the gate will be locked.",
+  "target": "夜明け前に潮が変わる\nそして門は閉ざされる。"
+ },
+ {
+  "n": 3,
+  "lang": "Japanese",
+  "ts": "00:00:06,000 --> 00:00:08,000",
+  "en": "- Are you awake?\n- Barely.",
+  "target": "- 起きてる?\n- かろうじて。"
+ },
+ {
+  "n": 4,
+  "lang": "Japanese",
+  "ts": "00:00:09,000 --> 00:00:11,000",
+  "en": "<i>Nobody answered the radio all night.</i>",
+  "target": "<i>誰も一晩中無線に出なかった。</i>"
+ },
+ {
+  "n": 5,
+  "lang": "Japanese",
+  "ts": "00:00:12,000 --> 00:00:14,000",
+  "en": "The guest is at the motel.",
+  "target": "客はmotelにいる。"
+ },
+ {
+  "n": 6,
+  "lang": "Japanese",
+  "ts": "00:00:15,000 --> 00:00:17,000",
+  "en": "Where is Omar tonight?",
+  "target": "オマルは今夜どこ?"
+ },
+ {
+  "n": 1,
+  "lang": "Chinese",
+  "ts": "00:00:00,000 --> 00:00:02,000",
+  "en": "The harbour master said he filed the papers at midnight.",
+  "target": "港务长说他在午夜之前就把文件交上去了。"
+ },
+ {
+  "n": 2,
+  "lang": "Chinese",
+  "ts": "00:00:03,000 --> 00:00:05,000",
+  "en": "The tide turns before dawn\nand the gate will be locked.",
+  "target": "黎明前潮水会转向\n大门也会被锁上。"
+ },
+ {
+  "n": 3,
+  "lang": "Chinese",
+  "ts": "00:00:06,000 --> 00:00:08,000",
+  "en": "- Are you awake?\n- Barely.",
+  "target": "- 你醒着吗?\n- 勉强。"
+ },
+ {
+  "n": 4,
+  "lang": "Chinese",
+  "ts": "00:00:09,000 --> 00:00:11,000",
+  "en": "<i>Nobody answered the radio all night.</i>",
+  "target": "<i>整夜没有人回应无线电。</i>"
+ },
+ {
+  "n": 5,
+  "lang": "Chinese",
+  "ts": "00:00:12,000 --> 00:00:14,000",
+  "en": "The keys are in the top drawer.",
+  "target": "钥匙在最上面的抽屉里。"
+ },
+ {
+  "n": 6,
+  "lang": "Chinese",
+  "ts": "00:00:15,000 --> 00:00:17,000",
+  "en": "Where is Omar tonight?",
+  "target": "奥马尔今晚在哪?"
+ },
+ {
+  "n": 1,
+  "lang": "Russian",
+  "ts": "00:00:00,000 --> 00:00:02,000",
+  "en": "I promised the crew we would finish by two.",
+  "target": "Я обещал команде, что мы закончим к двум часам ночи."
+ },
+ {
+  "n": 2,
+  "lang": "Russian",
+  "ts": "00:00:03,000 --> 00:00:05,000",
+  "en": "The tide turns before dawn\nand the gate will be locked.",
+  "target": "Прилив сменится до рассвета,\nи ворота закроют."
+ },
+ {
+  "n": 3,
+  "lang": "Russian",
+  "ts": "00:00:06,000 --> 00:00:08,000",
+  "en": "- Are you awake?\n- Barely.",
+  "target": "- Ты не спишь?\n- Едва."
+ },
+ {
+  "n": 4,
+  "lang": "Russian",
+  "ts": "00:00:09,000 --> 00:00:11,000",
+  "en": "<i>Nobody answered the radio all night.</i>",
+  "target": "<i>Никто не ответил по рации за всю ночь.</i>"
+ },
+ {
+  "n": 5,
+  "lang": "Russian",
+  "ts": "00:00:12,000 --> 00:00:14,000",
+  "en": "The manifest says the crate is from Beijing.",
+  "target": "В накладной сказано, что ящик из 北京."
+ },
+ {
+  "n": 6,
+  "lang": "Russian",
+  "ts": "00:00:15,000 --> 00:00:17,000",
+  "en": "Where is Omar tonight?",
+  "target": "Где сегодня Омар?"
+ },
+ {
+  "n": 1,
+  "lang": "Spanish",
+  "ts": "00:00:00,000 --> 00:00:02,000",
+  "en": "I promised the crew we would finish by two.",
+  "target": "Prometí a la tripulación terminar antes de las dos."
+ },
+ {
+  "n": 2,
+  "lang": "Spanish",
+  "ts": "00:00:03,000 --> 00:00:05,000",
+  "en": "The tide turns before dawn\nand the gate will be locked.",
+  "target": "La marea cambiará antes del alba\ny cerrarán la puerta."
+ },
+ {
+  "n": 3,
+  "lang": "Spanish",
+  "ts": "00:00:06,000 --> 00:00:08,000",
+  "en": "- Are you awake?\n- Barely.",
+  "target": "- ¿Estás despierto?\n- Apenas."
+ },
+ {
+  "n": 4,
+  "lang": "Spanish",
+  "ts": "00:00:09,000 --> 00:00:11,000",
+  "en": "<i>Nobody answered the radio all night.</i>",
+  "target": "<i>Nadie respondió a la radio en la noche.</i>"
+ },
+ {
+  "n": 5,
+  "lang": "Spanish",
+  "ts": "00:00:12,000 --> 00:00:14,000",
+  "en": "The keys are in the top drawer.",
+  "target": "Las llaves están en el cajón de la mesa."
+ },
+ {
+  "n": 6,
+  "lang": "Spanish",
+  "ts": "00:00:15,000 --> 00:00:17,000",
+  "en": "Where is Omar tonight?",
+  "target": "¿Dónde está Omar esta noche?"
  }
 ]

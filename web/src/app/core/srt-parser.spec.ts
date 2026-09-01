@@ -16,8 +16,8 @@ import {
   variantDriftMessage,
   visibleLength,
 } from './repair';
+import { normsFor, scriptFor } from './languages';
 import {
-  ALIGNED_CUES,
   BLED_PAIRS,
   COLLAPSED_LINES_CUE,
   CRLF_SAMPLE_SRT,
@@ -27,11 +27,18 @@ import {
   DROPPED_WRAP_CUE,
   EMPTY_PAIR_CUE,
   FLATTENED_MARK_CUES,
+  LEAKED_HAN_CUE,
   LONG_LINE_CUE,
   OVER_CJK_LIMIT_CUE,
+  PER_SCRIPT_BUDGET_CUE,
+  SCRIPT_LANDMARKS,
   SHARED_WORD_PAIR,
+  ScriptLandmarks,
+  TargetLanguage,
   VOCALIZED_CUES,
+  WELDED_LATIN_CUE,
   cue,
+  cuesFor,
 } from './testdata/aligned-cues';
 import {
   SubtitleBlock,
@@ -631,15 +638,16 @@ describe('detectCrossCueShift', () => {
 // the only place its false-positive rate shows: the fixture plants two bleeds
 // among 47 adjacent pairs, several of which reuse a word on purpose.
 describe('detectCrossCueShift over the whole synthetic run', () => {
-  const source = ALIGNED_CUES.map((c) => block(c.n, c.en));
-  const output = ALIGNED_CUES.map((c) => block(c.n, c.ar));
+  const arabic = cuesFor('Arabic');
+  const source = arabic.map((c) => block(c.n, c.en));
+  const output = arabic.map((c) => block(c.n, c.target));
   const messages = detectCrossCueShift(source, output);
   const flagged = messages.map((m) => m.slice('Blocks '.length, m.indexOf(':')));
   const planted = BLED_PAIRS.map(([first, second]) => `${first}-${second}`);
 
-  it('reads every cue of the fixture, numbered 1..n', () => {
-    expect(ALIGNED_CUES.length).toBe(48);
-    expect(ALIGNED_CUES.map((c) => c.n))
+  it('reads every cue of the Arabic file, numbered 1..n', () => {
+    expect(arabic.length).toBe(48);
+    expect(arabic.map((c) => c.n))
       .toEqual(Array.from({ length: 48 }, (_, i) => i + 1));
   });
 
@@ -698,7 +706,7 @@ describe('normalizeDiacritics', () => {
   });
 
   it('strips exactly the cues that switched register', () => {
-    const blocks = ALIGNED_CUES.map((c) => block(c.n, c.ar));
+    const blocks = cuesFor('Arabic').map((c) => block(c.n, c.target));
     const marks = (text: string) => (text.match(/[\u064B-\u0652\u0670]/g) ?? []).length;
     const before = blocks.filter((b) => marks(b.text) >= DIACRITIC_CUE_MIN);
     expect(before.map((b) => b.number)).toEqual(VOCALIZED_CUES);
@@ -952,7 +960,7 @@ describe('empty tag pairs', () => {
   });
 
   it('normalises a duplicated wrap, the shape a real run shipped', () => {
-    const r = repairTags(cue(EMPTY_PAIR_CUE).en, cue(EMPTY_PAIR_CUE).ar);
+    const r = repairTags(cue(EMPTY_PAIR_CUE).en, cue(EMPTY_PAIR_CUE).target);
     expect(r.text).toBe('{\\i1}انتهى العبور.{\\i0}');
     expect(r.ok).toBeTrue();
   });
@@ -1042,54 +1050,206 @@ describe('scriptLeaks', () => {
 describe('the defects the synthetic fixture plants', () => {
   it('restores the wrapping italics one cue lost entirely', () => {
     const c = cue(DROPPED_WRAP_CUE);
-    expect(repairTags(c.en, c.ar)).toEqual({ text: `<i>${c.ar}</i>`, ok: true });
+    expect(repairTags(c.en, c.target)).toEqual({ text: `<i>${c.target}</i>`, ok: true });
   });
 
   it('puts the two-line layout back on the cue that collapsed', () => {
     const c = cue(COLLAPSED_LINES_CUE);
     expect(c.en.split('\n').length).toBe(2);
-    expect(c.ar.split('\n').length).toBe(1);
-    expect(reflowToLineCount(c.ar, 2, 42, 'arabic').split('\n').length).toBe(2);
+    expect(c.target.split('\n').length).toBe(1);
+    expect(reflowToLineCount(c.target, 2, 42, 'arabic').split('\n').length).toBe(2);
   });
 
   it('leaves a cue whose lines are speaker turns unreflowed', () => {
     const c = cue(DASH_INTACT_CUE);
-    expect(dialogueDashLines(c.ar)).toBe(2);
-    expect(reflowToLineCount(c.ar, 1, 42, 'arabic')).toBe(c.ar);
+    expect(dialogueDashLines(c.target)).toBe(2);
+    expect(reflowToLineCount(c.target, 1, 42, 'arabic')).toBe(c.target);
   });
 
   it('gives both speakers their dash back when the lines survived', () => {
     const c = cue(DASH_DROPPED_CUE);
-    expect(dialogueDashLines(c.ar)).toBe(0);
-    expect(restoreDialogueDashes(c.en, c.ar))
+    expect(dialogueDashLines(c.target)).toBe(0);
+    expect(restoreDialogueDashes(c.en, c.target))
       .toEqual({ text: '- أين البيان؟\n- تحت الراديو.', ok: true });
   });
 
   it('refuses to guess where the dashes went when the turns merged', () => {
     const c = cue(DASH_MERGED_CUE);
-    expect(restoreDialogueDashes(c.en, c.ar)).toEqual({ text: c.ar, ok: false });
+    expect(restoreDialogueDashes(c.en, c.target)).toEqual({ text: c.target, ok: false });
   });
 
   it('breaks the one line that runs past the limit', () => {
     const c = cue(LONG_LINE_CUE);
-    expect(visibleLength(c.ar)).toBeGreaterThan(42);
-    const lines = enforceLineLength(c.ar, 42, 'arabic').split('\n');
+    expect(visibleLength(c.target)).toBeGreaterThan(42);
+    const lines = enforceLineLength(c.target, 42, 'arabic').split('\n');
     expect(lines.length).toBe(2);
     for (const line of lines) expect(visibleLength(line)).toBeLessThanOrEqual(42);
   });
 
   it('leaves a line inside the Latin limit and breaks it at the CJK one', () => {
     const c = cue(OVER_CJK_LIMIT_CUE);
-    expect(visibleLength(c.ar)).toBeGreaterThan(16);
-    expect(enforceLineLength(c.ar, 42, 'arabic')).toBe(c.ar);
-    expect(enforceLineLength(c.ar, 16, 'arabic').split('\n').length).toBe(2);
+    expect(visibleLength(c.target)).toBeGreaterThan(16);
+    expect(enforceLineLength(c.target, 42, 'arabic')).toBe(c.target);
+    expect(enforceLineLength(c.target, 16, 'arabic').split('\n').length).toBe(2);
   });
 
   it('puts back every terminal mark the run flattened, and only those', () => {
-    const restored = ALIGNED_CUES.filter(
-      (c) => restoreTerminalPunctuation(c.en, c.ar, 'arabic') !== c.ar);
+    const restored = cuesFor('Arabic').filter(
+      (c) => restoreTerminalPunctuation(c.en, c.target, 'arabic') !== c.target);
     expect(restored.map((c) => c.n)).toEqual(FLATTENED_MARK_CUES);
-    expect(restoreTerminalPunctuation(cue(8).en, cue(8).ar, 'arabic'))
+    expect(restoreTerminalPunctuation(cue(8).en, cue(8).target, 'arabic'))
       .toBe('أنزل الحبال عن العمود!');
+  });
+});
+
+// Everything above measures the repairs against one script. These measure the
+// script-dependent ones against the four the fixture adds, because Arabic
+// cannot tell a per-script rule from a global one: it shares Latin's 42-column
+// budget and Latin's word breaks, and only Arabic takes the RTL map at all.
+describe('repairs that depend on the target script', () => {
+  const LANGS: TargetLanguage[] = ['Arabic', 'Chinese', 'Japanese', 'Russian', 'Spanish'];
+  /** The over-budget, two-line, dashed or tagged cue of one target file. */
+  const landmark = (lang: TargetLanguage, shape: keyof ScriptLandmarks) =>
+    cue(SCRIPT_LANDMARKS[lang][shape]);
+
+  it('gives every script a file carrying all four shapes', () => {
+    for (const lang of LANGS) {
+      const marks = SCRIPT_LANDMARKS[lang];
+      const norms = normsFor(lang);
+      const over = landmark(lang, 'overBudget');
+      expect(cuesFor(lang).map((c) => c.n)).toContain(marks.overBudget);
+      expect(visibleLength(over.target)).toBeGreaterThan(norms.maxCharsPerLine);
+      expect(over.target.split('\n').length).toBe(1);
+      expect(landmark(lang, 'twoLines').en.split('\n').length).toBe(2);
+      expect(dialogueDashLines(landmark(lang, 'dashes').target)).toBe(2);
+      expect(findTags(landmark(lang, 'tagged').target).length).toBe(2);
+    }
+  });
+
+  it('routes each target language to the script whose norms it is written to', () => {
+    expect(LANGS.map((lang) => scriptFor(lang)))
+      .toEqual(['arabic', 'han', 'japanese', 'cyrillic', 'latin']);
+    expect(LANGS.map((lang) => normsFor(lang).maxCharsPerLine))
+      .toEqual([42, 16, 16, 42, 42]);
+  });
+
+  describe('reflow', () => {
+    /** The over-budget cue of one file, rewrapped to two lines against its own
+     * script's budget. */
+    function rewrap(lang: TargetLanguage): string[] {
+      const c = landmark(lang, 'overBudget');
+      const norms = normsFor(lang);
+      return reflowToLineCount(c.target, 2, norms.maxCharsPerLine, norms.script)
+        .split('\n');
+    }
+
+    for (const lang of ['Japanese', 'Chinese'] as const) {
+      it(`breaks a ${lang} cue between characters, not between words`, () => {
+        const c = landmark(lang, 'overBudget');
+        const budget = normsFor(lang).maxCharsPerLine;
+        const lines = rewrap(lang);
+        expect(lines.length).toBe(2);
+        // Joined with nothing at all: the break landed inside the writing, and
+        // no separator was invented to hold the halves apart.
+        expect(lines.join('')).toBe(c.target);
+        for (const line of lines) expect(visibleLength(line)).toBeLessThanOrEqual(budget);
+        // The word reflow has one unit to work with and cannot split at all,
+        // which is exactly what shipped before the script was consulted.
+        expect(reflowToLineCount(c.target, 2, budget, 'latin')).toBe(c.target);
+      });
+    }
+
+    for (const lang of ['Russian', 'Spanish'] as const) {
+      it(`breaks a ${lang} cue between words, not between characters`, () => {
+        const c = landmark(lang, 'overBudget');
+        const budget = normsFor(lang).maxCharsPerLine;
+        const lines = rewrap(lang);
+        expect(lines.length).toBe(2);
+        // Rejoining on the space proves no word was cut in half.
+        expect(lines.join(' ')).toBe(c.target);
+        for (const line of lines) expect(visibleLength(line)).toBeLessThanOrEqual(budget);
+        // The same cue under a no-space script breaks mid-word instead.
+        const charWrapped = reflowToLineCount(c.target, 2, budget, 'han').split('\n');
+        expect(charWrapped.length).toBe(2);
+        expect(charWrapped.join(' ')).not.toBe(c.target);
+      });
+    }
+  });
+
+  it('measures one 40-character cue against the target script, not a global limit', () => {
+    const c = cue(PER_SCRIPT_BUDGET_CUE);
+    expect(visibleLength(c.target)).toBe(40);
+    const latin = normsFor('Spanish');
+    const han = normsFor('Chinese');
+    expect(enforceLineLength(c.target, latin.maxCharsPerLine, latin.script)).toBe(c.target);
+    expect(enforceLineLength(c.target, han.maxCharsPerLine, han.script).split('\n').length)
+      .toBe(2);
+  });
+
+  it('re-points ASCII punctuation for Arabic and leaves the other scripts byte-identical', () => {
+    expect(normalizeRtlPunctuation('أين البيان? تحت الراديو', 'arabic'))
+      .toBe('أين البيان؟ تحت الراديو');
+    for (const lang of ['Russian', 'Japanese', 'Spanish'] as const) {
+      for (const c of cuesFor(lang)) {
+        expect(normalizeRtlPunctuation(c.target, normsFor(lang).script)).toBe(c.target);
+        // Not just the script gate: Arabic's own map finds nothing to re-point
+        // in a cue with no Arabic letter beside the mark.
+        expect(normalizeRtlPunctuation(c.target, 'arabic')).toBe(c.target);
+      }
+    }
+  });
+
+  it('leaves a file outside the Arabic script unvocalized', () => {
+    for (const lang of ['Russian', 'Japanese', 'Spanish', 'Chinese'] as const) {
+      const blocks = cuesFor(lang).map((c) => block(c.n, c.target));
+      expect(normalizeDiacritics(blocks, normsFor(lang).script)).toBe(blocks);
+      // Even asked for the Arabic pass, there are no marks to strip.
+      expect(normalizeDiacritics(blocks, 'arabic').map((b) => b.text))
+        .toEqual(blocks.map((b) => b.text));
+    }
+  });
+
+  it('finds no variant drift in a file with no Arabic markers to drift into', () => {
+    for (const lang of ['Russian', 'Japanese'] as const) {
+      const blocks = cuesFor(lang).map((c) => block(c.n, c.target));
+      expect(detectVariantDrift(blocks, normsFor(lang).script)).toBeNull();
+      // The check is table-driven, so the Arabic table finding nothing here is
+      // the assertion that matters — an unlisted script exits one line earlier.
+      expect(detectVariantDrift(blocks, 'arabic')).toBeNull();
+    }
+  });
+
+  describe('script leaks', () => {
+    /** Every cue of one file the leak detector has something to say about. */
+    function flagged(lang: TargetLanguage): number[] {
+      return cuesFor(lang)
+        .filter((c) => scriptLeaks(c.en, c.target, normsFor(lang).script).length)
+        .map((c) => c.n);
+    }
+
+    it('flags the Latin welded into a Japanese cue', () => {
+      const c = cue(WELDED_LATIN_CUE);
+      // The English source is Latin too, so a bare Latin word would be excused;
+      // welding it to the kana around it is what breaks the rendering.
+      expect(scriptLeaks(c.en, c.target, 'japanese')).toEqual([{
+        script: 'latin',
+        message: "'ラフィクがpierから電話した' welds kana to latin with no separator",
+      }]);
+      expect(flagged('Japanese')).toEqual([WELDED_LATIN_CUE]);
+    });
+
+    it('flags the Han characters left in a Russian cue', () => {
+      const c = cue(LEAKED_HAN_CUE);
+      expect(scriptLeaks(c.en, c.target, 'cyrillic')).toEqual([{
+        script: 'han',
+        message: "han characters appear in the translation ('你好')",
+      }]);
+      expect(flagged('Russian')).toEqual([LEAKED_HAN_CUE]);
+    });
+
+    it('says nothing about the files that planted no leak', () => {
+      expect(flagged('Chinese')).toEqual([]);
+      expect(flagged('Spanish')).toEqual([]);
+    });
   });
 });
