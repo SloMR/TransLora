@@ -6,38 +6,93 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # PR-only: main-branch runs seed the caches and the branch-protection signal.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       web: ${{ steps.filter.outputs.web }}
       cli: ${{ steps.filter.outputs.cli }}
+      scripts: ${{ steps.filter.outputs.scripts }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
         id: filter
         with:
           filters: |
             web:
               - 'web/**'
+              - 'Makefile'
               - '.github/workflows/ci.yml'
             cli:
               - 'cli/**'
+              # The CLI parity test reads the web core.
+              - 'web/src/app/core/**'
+              - 'ruff.toml'
+              - 'mypy.ini'
+              - 'Makefile'
               - '.github/workflows/ci.yml'
+            scripts:
+              - 'scripts/**'
+              - 'Makefile'
+              - '.github/workflows/**'
+              - 'web/package.json'
+              - 'web/package-lock.json'
+              - 'cli/pyproject.toml'
+              - 'cli/translora.py'
+
+  scripts:
+    name: Scripts (shellcheck + versions)
+    needs: changes
+    if: needs.changes.outputs.scripts == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Shellcheck
+        run: make lint-scripts
+      - name: Check versions agree
+        run: make versions
+      # No GH_TOKEN on purpose: nothing is then filtered out as already
+      # released, so every tag's notes are actually rendered.
+      - name: Release script dry-run
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: make release-dry LIMIT=3
 
   cli:
-    name: CLI (pytest, ${{ matrix.installer }})
+    name: CLI (pytest, ${{ matrix.installer }}, py${{ matrix.python-version }})
     needs: changes
     if: needs.changes.outputs.cli == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        installer: [pip, uv]
-    defaults:
-      run:
-        working-directory: cli
+        include:
+          - installer: pip
+            python-version: "3.10"
+          - installer: pip
+            python-version: "3.12"
+          - installer: uv
+            python-version: "3.11"
+          - installer: uv
+            python-version: "3.12"
     steps:
       - uses: actions/checkout@v4
 
@@ -45,7 +100,7 @@ jobs:
         if: matrix.installer == 'pip'
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: cli/requirements.txt
 
@@ -53,58 +108,83 @@ jobs:
         if: matrix.installer == 'pip'
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest
-
-      - name: Run tests (pip)
-        if: matrix.installer == 'pip'
-        run: pytest
+          pip install -r cli/requirements.txt pytest
 
       - name: Install uv
         if: matrix.installer == 'uv'
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           enable-cache: true
-          cache-dependency-glob: cli/pyproject.toml
+          cache-dependency-glob: cli/uv.lock
 
       - name: Install dependencies (uv)
         if: matrix.installer == 'uv'
-        run: uv sync --extra dev --python 3.12
+        env:
+          UV_PYTHON: ${{ matrix.python-version }}
+        run: make install-cli
 
-      - name: Run tests (uv)
-        if: matrix.installer == 'uv'
-        run: uv run pytest
+      - name: Run tests
+        run: make test-cli PY="${{ matrix.installer == 'uv' && 'uv run' || '' }}"
+
+  python-quality:
+    name: Python (ruff + mypy)
+    needs: changes
+    if: needs.changes.outputs.cli == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+      - name: Ruff
+        run: make lint-cli
+      - name: Mypy
+        run: make typecheck-cli
 
   web:
-    name: Web (Karma)
+    name: Web (lint, build, Karma)
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: Install dependencies
-        run: npm ci
+        run: make install-web
+      - name: Lint
+        run: make lint-web
+      - name: Type-check
+        run: make typecheck-web
       - name: Run tests
-        run: npx ng test --watch=false --browsers=ChromeHeadless
+        run: make test-web
+      - name: Build (production)
+        run: make build-web
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-coverage
+          path: web/coverage
+          if-no-files-found: warn
+          retention-days: 7
 
   docker-web:
     name: Docker (web)
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
       - name: Build image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
         with:
           context: ./web
           load: true
@@ -114,11 +194,17 @@ jobs:
       - name: Smoke test
         run: |
           set -euo pipefail
-          docker run -d --name web-smoke -p 18080:80 translora-web:ci
-          for i in {1..15}; do
-            curl -fsS -o /dev/null http://localhost:18080/ && break
+          docker run -d --name web-smoke -p 18080:8080 translora-web:ci
+
+          # Wait on the image's own HEALTHCHECK, not a blind poll.
+          for _ in $(seq 1 30); do
+            state=$(docker inspect -f '{{.State.Health.Status}}' web-smoke)
+            [ "$state" = "healthy" ] && break
+            [ "$state" = "unhealthy" ] && break
             sleep 1
           done
+          state=$(docker inspect -f '{{.State.Health.Status}}' web-smoke)
+          [ "$state" = "healthy" ] || { echo "container is $state"; docker logs web-smoke; exit 1; }
 
           code=$(curl -s -o /tmp/index.html -w '%{http_code}' http://localhost:18080/)
           [ "$code" = "200" ] || { echo "GET / returned $code"; exit 1; }
@@ -128,18 +214,48 @@ jobs:
           code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/some/spa/route)
           [ "$code" = "200" ] || { echo "SPA fallback returned $code"; exit 1; }
 
-          docker rm -f web-smoke
+          for missing in nope.json app.webmanifest x.wasm missing-XYZ.js; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:18080/$missing")
+            [ "$code" = "404" ] || { echo "GET /$missing returned $code, want 404"; exit 1; }
+          done
+
+          hashed=$(grep -o 'main-[A-Za-z0-9]*\.js' /tmp/index.html | head -1)
+          curl -sI "http://localhost:18080/$hashed" | tr -d '\r' > /tmp/asset.h
+          grep -q '^Content-Security-Policy: ' /tmp/asset.h
+          grep -q '^X-Content-Type-Options: nosniff' /tmp/asset.h
+          grep -qi '^cache-control: public, max-age=31536000, immutable' /tmp/asset.h
+          [ "$(grep -ci '^cache-control:' /tmp/asset.h)" = "1" ] \
+            || { echo "expected exactly one Cache-Control header"; cat /tmp/asset.h; exit 1; }
+
+          curl -sI -H 'Accept-Encoding: gzip' "http://localhost:18080/$hashed" \
+            | tr -d '\r' | grep -q '^Content-Encoding: gzip'
+
+          python3 - <<'PY'
+          import base64, hashlib, re, sys
+          html = open("/tmp/index.html").read()
+          handlers = re.findall(r'\son[a-z]+="([^"]*)"', html)
+          conf = open("web/nginx.conf").read()
+          for h in handlers:
+              digest = base64.b64encode(hashlib.sha256(h.encode()).digest()).decode()
+              if f"'sha256-{digest}'" not in conf:
+                  sys.exit(f"inline handler {h!r} is not allowed by the CSP in web/nginx.conf")
+          print(f"{len(handlers)} inline handler(s) covered by the CSP.")
+          PY
+      - name: Tear down
+        if: always()
+        run: docker rm -f web-smoke || true
 
   docker-cli:
     name: Docker (cli)
     needs: changes
     if: needs.changes.outputs.cli == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
       - name: Build image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
         with:
           context: ./cli
           load: true
@@ -157,21 +273,22 @@ jobs:
   # if any upstream actually failed or was cancelled.
   ci:
     name: CI
-    needs: [changes, cli, web, docker-web, docker-cli]
+    needs: [changes, scripts, cli, python-quality, web, docker-web, docker-cli]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Verify upstream jobs
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
         run: |
-          results='${{ toJson(needs) }}'
-          echo "$results"
-          echo "$results" | python3 -c '
-          import json, sys
-          data = json.load(sys.stdin)
-          bad = [name for name, job in data.items()
-                 if job["result"] not in ("success", "skipped")]
+          python3 - <<'PY'
+          import json, os, sys
+
+          jobs = json.loads(os.environ["NEEDS_JSON"])
+          bad = sorted(name for name, job in jobs.items()
+                       if job["result"] not in ("success", "skipped"))
           if bad:
-              print(f"Failing upstream jobs: {bad}", file=sys.stderr)
-              sys.exit(1)
+              sys.exit(f"Failing upstream jobs: {bad}")
           print("All upstream jobs OK.")
-          '
+          PY
