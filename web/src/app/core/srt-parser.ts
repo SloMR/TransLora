@@ -1,3 +1,7 @@
+// The wire format the model is sent and the validation of what comes back:
+// parsing and serializing SRT, the timestamp-free "lite" batch format, batch
+// splitting, and the checks a reply must pass before it is accepted.
+
 export interface SubtitleBlock {
   number: number;
   timestamp: string;
@@ -10,9 +14,21 @@ export interface ValidationResult {
 }
 
 const TIMESTAMP_RE = /^\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}$/;
+// Unanchored: catches a timestamp anywhere inside a returned block's text.
+const TIMESTAMP_IN_TEXT_RE = /\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}/;
+const BLOCK_NUMBER_RE = /^[+-]?\d+$/;
+
+/** Cue text as the rest of the pipeline expects it: LF breaks, no trailing
+ * blank lines. Interior blanks stay — serializeLite collapses those. Every
+ * format parser runs its cue text through this. */
+export function normalizeCueText(text: string): string {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n');
+  while (lines.length && !lines[lines.length - 1]!.trim()) lines.pop();
+  return lines.join('\n');
+}
 
 export function parseSrt(content: string): SubtitleBlock[] {
-  content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  content = normalizeCueText(content);
   if (content.charCodeAt(0) === 0xfeff) {
     content = content.slice(1);
   }
@@ -47,12 +63,18 @@ export function serializeSrt(blocks: SubtitleBlock[]): string {
 
 // Wire format: number + text only. Timestamps are stripped before sending
 // because small models sometimes corrupt them; callers reattach positionally.
+// A blank line inside a cue is dropped: it would forge a block boundary.
 export function serializeLite(blocks: SubtitleBlock[]): string {
-  return blocks.map((b) => `${b.number}\n${b.text}`).join('\n\n') + '\n';
+  return blocks
+    .map((b) => {
+      const text = b.text.split('\n').filter((line) => line.trim()).join('\n');
+      return `${b.number}\n${text}`;
+    })
+    .join('\n\n') + '\n';
 }
 
 export function parseLite(content: string): SubtitleBlock[] {
-  content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  content = normalizeCueText(content);
   if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
 
   const rawBlocks = content.trim().split(/\n\n+/);
@@ -62,8 +84,10 @@ export function parseLite(content: string): SubtitleBlock[] {
     const lines = raw.trim().split('\n');
     if (lines.length < 1) continue;
 
-    const number = parseInt(lines[0].trim(), 10);
-    if (isNaN(number)) continue;
+    // Strict: "1) text" would otherwise parse as an empty block that validates.
+    const numberLine = lines[0].trim();
+    if (!BLOCK_NUMBER_RE.test(numberLine)) continue;
+    const number = parseInt(numberLine, 10);
 
     const text = lines.slice(1).join('\n');
     blocks.push({ number, timestamp: '', text });
@@ -73,7 +97,7 @@ export function parseLite(content: string): SubtitleBlock[] {
 
 export function splitBatches(
   blocks: SubtitleBlock[],
-  batchSize: number = 15
+  batchSize = 15
 ): SubtitleBlock[][] {
   const batches: SubtitleBlock[][] = [];
   for (let i = 0; i < blocks.length; i += batchSize) {
@@ -102,11 +126,34 @@ export function validateBatch(
     }
   }
 
+  // Wire-parsed blocks have no timestamp yet; compare only once one is set.
   for (let i = 0; i < inputBlocks.length; i++) {
-    if (inputBlocks[i].timestamp !== outputBlocks[i].timestamp) {
+    if (outputBlocks[i].timestamp && inputBlocks[i].timestamp !== outputBlocks[i].timestamp) {
       return {
         ok: false,
-        error: `Timestamp modified at block ${inputBlocks[i].number}`,
+        error:
+          `Timestamp modified at block ${inputBlocks[i].number}: ` +
+          `expected '${inputBlocks[i].timestamp}', got '${outputBlocks[i].timestamp}'`,
+      };
+    }
+  }
+
+  // The model can shift blocks and leave a tail blank with count/numbers intact.
+  for (let i = 0; i < inputBlocks.length; i++) {
+    if (inputBlocks[i].text.trim() && !outputBlocks[i].text.trim()) {
+      return {
+        ok: false,
+        error: `Empty output at block ${inputBlocks[i].number} (input was non-empty)`,
+      };
+    }
+  }
+
+  // Wire format has no timestamps, so one in the text is an invented line.
+  for (let i = 0; i < inputBlocks.length; i++) {
+    if (TIMESTAMP_IN_TEXT_RE.test(outputBlocks[i].text)) {
+      return {
+        ok: false,
+        error: `Timestamp line leaked into text at block ${inputBlocks[i].number}`,
       };
     }
   }
