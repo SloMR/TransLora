@@ -1,0 +1,36 @@
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      angular:
+        patterns: ["@angular/*", "@angular-devkit/*", "angular-eslint"]
+      eslint:
+        patterns: ["eslint", "@eslint/*", "typescript-eslint"]
+      karma:
+        patterns: ["karma*", "jasmine*", "@types/jasmine"]
+
+  - package-ecosystem: pip
+    directory: /cli
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  # The Dockerfiles pin by digest, so nothing else would report a moved base image.
+  - package-ecosystem: docker
+    directory: /web
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /cli
+    schedule:
+      interval: weekly

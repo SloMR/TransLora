@@ -1,0 +1,27 @@
+name: Feature request
+description: Propose a change to the translator, the CLI, or the web app.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that TransLora makes hard today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Which side
+      description: The CLI and the web app implement the same translator, so prompting and output changes land on both.
+      options: [CLI only, Web only, Both, Not sure]
+    validations:
+      required: true
