@@ -1,3 +1,4 @@
+import { RunStats } from './run-stats';
 import { SubtitleDocument } from './subtitle-formats/types';
 
 export const SUBTITLE_EXTS = ['.srt', '.vtt', '.ass', '.ssa', '.sub', '.sbv'];
@@ -19,5 +20,7 @@ export interface FileStatus {
   totalBatches?: number;
   content?: string;
   timeMs?: number;
+  /** What the finished run cost: LLM calls by pass, blocks, elapsed time. */
+  stats?: RunStats;
   error?: string;
 }
