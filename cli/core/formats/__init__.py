@@ -1,14 +1,20 @@
 """Multi-format subtitle parsing via pysubs2 (with a small SBV fallback).
 Every format is normalized to SRT-shape blocks so the LLM sees one structure;
-rebuild delegates back to pysubs2 to preserve headers, styles, and per-cue metadata."""
+rebuild delegates back to pysubs2 to preserve headers, styles, and per-cue metadata.
+
+Known limitation: pysubs2 routes every format through ASS-shaped events, so a
+round-trip drops what ASS has no slot for — VTT cue ids and settings, NOTE and
+STYLE blocks, SRT positioning tags. Fixing it needs format-native parsers.
+"""
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pysubs2
 
-from ..srt_parser import SubtitleBlock
+from ..srt_parser import SubtitleBlock, normalize_text
 from .sbv import parse_sbv
 from .types import SubtitleDocument, SubtitleFormat
 
@@ -32,13 +38,38 @@ def parse_subtitle(file_name: str, content: str) -> SubtitleDocument:
 
 
 _MICRODVD_DEFAULT_FPS = 23.976
+# MicroDVD files declare their framerate as a `{1}{1}<fps>` pseudo-cue.
+_MICRODVD_FPS_RE = re.compile(r"^\s*\{\s*1\s*\}\s*\{\s*1\s*\}\s*(\d+(?:\.\d+)?)\s*$")
+
+
+def declared_microdvd_fps(content: str) -> str | None:
+    """The file's own `{1}{1}<fps>` header, verbatim, or None. Only the first
+    non-empty line counts — elsewhere `{1}{1}` is an ordinary cue."""
+    for line in content.splitlines():
+        if not line.strip():
+            continue
+        m = _MICRODVD_FPS_RE.match(line)
+        if not m:
+            return None
+        return m.group(1) if float(m.group(1)) > 0 else None
+    return None
 
 
 def _parse_pysubs2(content: str, source_ext: str, fmt: str) -> SubtitleDocument:
-    kwargs: dict = {}
+    read_kwargs: dict = {}
+    write_kwargs: dict = {}
+    declared_fps: str | None = None
     if fmt == "microdvd":
-        kwargs["fps"] = _MICRODVD_DEFAULT_FPS
-    subs = pysubs2.SSAFile.from_string(content, format_=fmt, **kwargs)
+        # pysubs2 honours the file's own fps header only when no fps is passed;
+        # forcing one turns that header into a translatable cue.
+        declared_fps = declared_microdvd_fps(content)
+        if declared_fps is None:
+            read_kwargs["fps"] = _MICRODVD_DEFAULT_FPS
+            write_kwargs["fps"] = _MICRODVD_DEFAULT_FPS
+        # pysubs2 writes `{0}{0}<fps>`, which nothing reads back as a framerate;
+        # we re-emit the original header below instead.
+        write_kwargs["write_fps_declaration"] = False
+    subs = pysubs2.SSAFile.from_string(content, format_=fmt, **read_kwargs)
 
     event_indices: list[int] = []
     blocks: list[SubtitleBlock] = []
@@ -50,7 +81,7 @@ def _parse_pysubs2(content: str, source_ext: str, fmt: str) -> SubtitleDocument:
             SubtitleBlock(
                 number=len(blocks) + 1,
                 timestamp=f"{_ms_to_srt(event.start)} --> {_ms_to_srt(event.end)}",
-                text=event.text.replace("\\N", "\n"),
+                text=normalize_text(event.text.replace("\\N", "\n")),
             )
         )
 
@@ -63,7 +94,10 @@ def _parse_pysubs2(content: str, source_ext: str, fmt: str) -> SubtitleDocument:
             subs.events[event_indices[i]].text = translated_block.text.replace(
                 "\n", "\\N"
             )
-        return subs.to_string(format_=fmt, **kwargs)
+        out = subs.to_string(format_=fmt, **write_kwargs)
+        if declared_fps is not None:
+            out = "{1}{1}" + declared_fps + "\n" + out
+        return out
 
     return SubtitleDocument(format=source_format, blocks=blocks, rebuild=rebuild)
 

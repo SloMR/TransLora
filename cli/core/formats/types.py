@@ -1,9 +1,11 @@
-"""Shared types and helpers for subtitle-format parsers."""
+"""Shared types for subtitle-format parsers. Separate from the package
+`__init__` so `sbv` can import them without an import cycle."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Literal
+from typing import Literal
 
 from ..srt_parser import SubtitleBlock
 
@@ -18,23 +20,3 @@ class SubtitleDocument:
     format: SubtitleFormat
     blocks: list[SubtitleBlock]
     rebuild: Callable[[list[SubtitleBlock]], str]
-
-
-def strip_bom(s: str) -> str:
-    return s[1:] if s.startswith("\ufeff") else s
-
-
-def normalize_newlines(s: str) -> str:
-    return s.replace("\r\n", "\n").replace("\r", "\n")
-
-
-def detect_eol(raw: str) -> str:
-    return "\r\n" if "\r\n" in raw else "\n"
-
-
-def pad2(n: int) -> str:
-    return f"{n:02d}"
-
-
-def pad3(n: int) -> str:
-    return f"{n:03d}"
