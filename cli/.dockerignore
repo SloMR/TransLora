@@ -11,5 +11,4 @@ tests
 *.md
 Dockerfile*
 .dockerignore
-uv.lock
 **/*.log
