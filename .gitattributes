@@ -1,0 +1,16 @@
+# Normalise line endings on commit; let the platform decide on checkout.
+* text=auto
+
+# A CRLF checkout makes even the shebang unparseable, whatever core.autocrlf says.
+*.sh text eol=lf
+
+# Parser input: the CRLF tests must get their bytes back unchanged.
+*.srt -text diff
+*.vtt -text diff
+*.ass -text diff
+*.ssa -text diff
+*.sbv -text diff
+
+# Generated — collapse in GitHub's diff view (still diffable locally).
+web/package-lock.json linguist-generated=true
+cli/uv.lock linguist-generated=true

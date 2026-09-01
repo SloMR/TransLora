@@ -1,0 +1,32 @@
+# Repo-wide defaults. web/.editorconfig is root = true, so its [*] block must
+# stay identical to the one here.
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.py]
+indent_size = 4
+# Keep in step with line-length in ruff.toml.
+max_line_length = 100
+
+[*.sh]
+indent_size = 4
+
+[{*.yml,*.yaml}]
+indent_size = 2
+
+[*.json]
+indent_size = 2
+
+[*.md]
+max_line_length = off
+# Two trailing spaces are a hard line break in Markdown.
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab

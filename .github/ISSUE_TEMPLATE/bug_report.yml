@@ -1,0 +1,49 @@
+name: Bug report
+description: Something translates, parses, or exports wrongly.
+labels: [bug]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Where
+      options: [CLI, Web app, Both, Docker image, Release script]
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`python translora.py --version`, or the footer of the web app."
+      placeholder: cli 0.5.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: format
+    attributes:
+      label: Subtitle format
+      options: [SRT, VTT, ASS/SSA, SBV, Not format-specific]
+    validations:
+      required: true
+
+  - type: input
+    id: provider
+    attributes:
+      label: Provider and model
+      description: Never paste your API key.
+      placeholder: OpenAI / gpt-4.1-mini
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected versus what you got, plus the smallest input block range that reproduces it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Command or steps
+      render: shell

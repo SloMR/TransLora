@@ -210,8 +210,7 @@ Anything else that speaks the OpenAI chat-completions protocol will work the sam
 ├── cli/        Python 3.10+ CLI
 │   ├── translora.py    Entry point
 │   └── core/           Batching, HTTP, retries, ETA, live terminal UI
-├── DESIGN.md   Visual-design notes for the web app
-└── CLAUDE.md   Architecture overview and the full translation prompt
+└── DESIGN.md   Visual-design notes for the web app
 ```
 
 ## Requirements
