@@ -24,10 +24,10 @@ import {
 } from './context-pass';
 import { SubtitleBlock } from './srt-parser';
 import {
-  ALIGNED_CUES,
   CONSISTENT_PHRASE,
   REPEATED_PHRASES,
   SPLIT_PHRASE,
+  cuesFor,
 } from './testdata/aligned-cues';
 
 const TEST_BUDGET = 24_000;
@@ -841,7 +841,7 @@ describe('recurringPhrases', () => {
   });
 
   it('seeds exactly the phrases the whole file repeats, most-spent-on first', () => {
-    const phrases = recurringPhrases(ALIGNED_CUES.map((c) => block(c.n, c.en)));
+    const phrases = recurringPhrases(cuesFor('Arabic').map((c) => block(c.n, c.en)));
     // 4 x "night shift" outweighs 3 x the longer "ferry terminal".
     expect(phrases).toEqual(REPEATED_PHRASES);
     expect(phrases.length).toBeLessThanOrEqual(PHRASE_LIMIT);
@@ -925,12 +925,12 @@ describe('findInconsistentPhrases', () => {
 
   it('flags the fixture phrase the file splits and nothing else', () => {
     const splits = findInconsistentPhrases(
-      ALIGNED_CUES.map((c) => block(c.n, c.en)),
-      ALIGNED_CUES.map((c) => block(c.n, c.ar)),
+      cuesFor('Arabic').map((c) => block(c.n, c.en)),
+      cuesFor('Arabic').map((c) => block(c.n, c.target)),
     );
     expect(splits.map((s) => s.phrase)).toEqual([SPLIT_PHRASE]);
     expect(splits[0]!.blocks.length).toBe(4);
-    expect(recurringPhrases(ALIGNED_CUES.map((c) => block(c.n, c.en)),
+    expect(recurringPhrases(cuesFor('Arabic').map((c) => block(c.n, c.en)),
       CONSISTENCY_MIN_CHARS)).toContain(CONSISTENT_PHRASE);
   });
 });
