@@ -4,7 +4,7 @@ import time
 
 
 def format_duration(seconds: float) -> str:
-    total = int(round(seconds))
+    total = round(seconds)
     if total < 60:
         return f"{total}s"
     if total < 3600:

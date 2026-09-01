@@ -5,10 +5,11 @@ Output is plain text when stdout isn't a TTY or when NO_COLOR=1.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 import threading
-from typing import Callable
+from collections.abc import Callable
 
 
 class Colors:
@@ -92,6 +93,15 @@ def _visible_len(text: str) -> int:
     return out
 
 
+def restore_terminal(stream=sys.stdout) -> None:
+    """Close the partial live line and re-show the cursor after an interrupt."""
+    if not stream.isatty():
+        return
+    with contextlib.suppress(Exception):
+        stream.write("\r\033[K\033[?25h\n")
+        stream.flush()
+
+
 class Ticker:
     """Calls render_fn from a background thread every interval seconds.
     Swallows callback exceptions so a transient render error can't kill the run.
@@ -109,10 +119,8 @@ class Ticker:
 
     def _loop(self) -> None:
         while not self._stop.is_set():
-            try:
+            with contextlib.suppress(Exception):
                 self._render()
-            except Exception:
-                pass
             self._stop.wait(self._interval)
 
     def stop(self) -> None:
