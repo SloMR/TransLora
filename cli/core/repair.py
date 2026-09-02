@@ -20,6 +20,7 @@ from statistics import median
 from .constants import VARIANT_DRIFT_FRACTION
 from .languages import (
     ARABIC_PUNCTUATION_SCRIPTS,
+    CJK_PUNCTUATION_SCRIPTS,
     DEFAULT_MAX_CHARS_PER_LINE,
     DEFAULT_SCRIPT,
     GENERIC_VARIANT,
@@ -82,6 +83,10 @@ TARGET_SCRIPTS: dict[str, tuple[str, ...]] = {
 LEAK_SAMPLE_CHARS = 12
 
 RTL_PUNCTUATION = {"?": "؟", ",": "،", ";": "؛"}
+# The same idea for the scripts that end a sentence on a fullwidth mark. Only
+# the terminal three: a CJK comma is a line-break hint the reflow already
+# knows about, and re-pointing it here would fight that pass.
+CJK_PUNCTUATION = {".": "。", "!": "！", "?": "？"}
 _URL_RE = re.compile(r"(?:[a-zA-Z][\w+.-]*://|www\.)\S+")
 _ARABIC_RE = re.compile("[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
 _LATIN_RE = re.compile(r"[0-9A-Za-z]")
@@ -615,8 +620,12 @@ def _last_visible_index(text: str, start: int | None = None) -> int:
 
 
 def _target_mark(mark: str, script: str) -> str:
+    """The glyph `mark` is written with in this script. Without it a cue ending
+    on 。 reads as ending on no mark at all, and a flattened "!" ships."""
     if script in ARABIC_PUNCTUATION_SCRIPTS:
         return RTL_PUNCTUATION.get(mark, mark)
+    if script in CJK_PUNCTUATION_SCRIPTS:
+        return CJK_PUNCTUATION.get(mark, mark)
     return mark
 
 

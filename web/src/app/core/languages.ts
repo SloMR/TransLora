@@ -123,6 +123,9 @@ export const DEFAULT_SCRIPT = 'default';
 // Right-to-left scripts; only the Arabic one re-points ASCII punctuation.
 export const RTL_SCRIPTS = new Set(['arabic', 'hebrew']);
 export const ARABIC_PUNCTUATION_SCRIPTS = new Set(['arabic']);
+// Scripts that write the sentence-final marks in their own fullwidth forms.
+// Korean is not one of them: it takes the ASCII marks as they are.
+export const CJK_PUNCTUATION_SCRIPTS = new Set(['han', 'japanese']);
 
 export interface SubtitleNorms {
   script: string;

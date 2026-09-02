@@ -26,8 +26,8 @@ import {
   LANDMARKS,
   LEAKED_HAN_CUE,
   Landmarks,
-  MARK_BLIND_LANGUAGES,
   MARK_RESTORED_LANGUAGES,
+  RESTORED_MARK,
   PER_SCRIPT_BUDGET_CUE,
   SHARED_WORD_PAIR,
   TARGET_LANGUAGES,
@@ -1120,18 +1120,16 @@ describe('the defects the synthetic fixture plants', () => {
     });
   }
 
-  // The same defect, planted the way a real CJK run writes it. TERMINAL_MARKS
-  // holds the ASCII three and targetMark re-points them for Arabic only, so a
-  // cue ending on 。 reads as ending on no mark at all and is left as written.
-  for (const lang of MARK_BLIND_LANGUAGES) {
-    it(`leaves the flattened ${lang} mark alone: 。 is not a mark it knows`, () => {
+  // A CJK cue ends its sentence on a fullwidth mark, so the restored "!" has
+  // to be spelled the way that script spells it — an ASCII "!" welded to kana
+  // is the same defect wearing a different hat.
+  for (const lang of MARK_RESTORED_LANGUAGES) {
+    it(`spells the restored ${lang} mark the way that script spells it`, () => {
       const { script } = normsFor(lang);
       const c = cue(LANDMARKS[lang].flattenedMark);
       expect(c.en.endsWith('!')).toBeTrue();
-      expect(c.target.endsWith('。')).toBeTrue();
-      expect(restoreTerminalPunctuation(c.en, c.target, script)).toBe(c.target);
-      expect(cuesFor(lang).filter(
-        (x) => restoreTerminalPunctuation(x.en, x.target, script) !== x.target)).toEqual([]);
+      expect(restoreTerminalPunctuation(c.en, c.target, script))
+        .toBe(c.target.slice(0, -1) + RESTORED_MARK[lang]);
     });
   }
 });

@@ -94,10 +94,10 @@ export const LANDMARKS: Record<TargetLanguage, Landmarks> = {
   },
 };
 
-// Two passes cannot see a defect this fixture plants in all five files. Both
-// are pinned by a test rather than left as a silent gap, and the bled and
-// flattened-mark cues are planted in the blind files precisely so the day
-// someone teaches a pass to see them, a test says so.
+// One pass still cannot see a defect this fixture plants in all five files.
+// It is pinned by a test rather than left as a silent gap, and the bled cues
+// are planted in the blind files precisely so the day someone teaches the rule
+// to see them, a test says so.
 
 /** The languages whose bleeding is detectable. `contentWords` splits on
  * spaces, so a script that does not use them yields one token per cue and the
@@ -106,13 +106,14 @@ export const BLEED_VISIBLE_LANGUAGES: TargetLanguage[] =
   ['Arabic', 'Russian', 'Spanish'];
 export const BLEED_BLIND_LANGUAGES: TargetLanguage[] = ['Japanese', 'Chinese'];
 
-/** The languages whose flattened terminal mark is restored. `TERMINAL_MARKS`
- * holds the ASCII three and `targetMark` re-points them for Arabic only, so a
- * cue ending on the ideographic 。 reads as ending on no mark at all and is
- * left exactly as the model wrote it. */
-export const MARK_RESTORED_LANGUAGES: TargetLanguage[] =
-  ['Arabic', 'Russian', 'Spanish'];
-export const MARK_BLIND_LANGUAGES: TargetLanguage[] = ['Japanese', 'Chinese'];
+/** Every language's flattened terminal mark is restored, each in its own
+ * script's glyph — `targetMark` re-points the ASCII three through
+ * RTL_PUNCTUATION for Arabic and CJK_PUNCTUATION for Han and Japanese. */
+export const MARK_RESTORED_LANGUAGES: TargetLanguage[] = TARGET_LANGUAGES;
+/** What each script's restored "!" is spelled with. */
+export const RESTORED_MARK: Record<TargetLanguage, string> = {
+  Arabic: '!', Japanese: '！', Chinese: '！', Russian: '!', Spanish: '!',
+};
 
 // --- Shapes only one file can carry -----------------------------------------
 

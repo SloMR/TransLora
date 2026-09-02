@@ -18,6 +18,9 @@ DEFAULT_SCRIPT = "default"
 # Right-to-left scripts; only the Arabic one re-points ASCII punctuation.
 RTL_SCRIPTS = frozenset({"arabic", "hebrew"})
 ARABIC_PUNCTUATION_SCRIPTS = frozenset({"arabic"})
+# Scripts that write the sentence-final marks in their own fullwidth forms.
+# Korean is not one of them: it takes the ASCII marks as they are.
+CJK_PUNCTUATION_SCRIPTS = frozenset({"han", "japanese"})
 
 
 @dataclass(frozen=True)
