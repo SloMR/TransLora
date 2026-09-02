@@ -58,7 +58,7 @@ describe('TranslationRunnerService', () => {
 
     expect(service.maxConcurrent).toBe(2);
     expect(runner.doneFiles().length).toBe(5);
-    expect(runner.isTranslating()).toBeFalse();
+    expect(runner.isTranslating()).toBe(false);
   });
 
   it('marks in-flight files failed on cancel and settles isTranslating', async () => {
@@ -69,17 +69,17 @@ describe('TranslationRunnerService', () => {
     await flush();
     const signals = service.pending.map((c) => c.cancelSignal!);
     expect(signals.length).toBe(2);
-    expect(signals.every((s) => !s.aborted)).toBeTrue();
+    expect(signals.every((s) => !s.aborted)).toBe(true);
 
     runner.cancel();
-    expect(signals.every((s) => s.aborted)).toBeTrue();
+    expect(signals.every((s) => s.aborted)).toBe(true);
 
     // The service rejects once the run's signal aborts.
     for (const call of service.takeAll()) call.reject(new TranslationCancelledError());
     await flush();
 
-    expect(runner.isTranslating()).toBeFalse();
-    expect(runner.isCancelling()).toBeFalse();
+    expect(runner.isTranslating()).toBe(false);
+    expect(runner.isCancelling()).toBe(false);
     expect(runner.failedFiles().map((f) => f.error)).toEqual(['Cancelled', 'Cancelled']);
   });
 
@@ -94,7 +94,7 @@ describe('TranslationRunnerService', () => {
     runner.cancel();
     for (const call of service.takeAll()) call.reject(new TranslationCancelledError());
     await flush();
-    expect(runner.canRetryFailed()).toBeTrue();
+    expect(runner.canRetryFailed()).toBe(true);
 
     runner.retryFailed();
     await flush();
@@ -102,16 +102,16 @@ describe('TranslationRunnerService', () => {
     const retrySignals = service.pending.map((c) => c.cancelSignal!);
     expect(retrySignals.length).toBe(2);
     // A reused controller would already be aborted, so nothing would run.
-    expect(firstSignals.every((s) => s.aborted)).toBeTrue();
-    expect(retrySignals.every((s) => !s.aborted)).toBeTrue();
+    expect(firstSignals.every((s) => s.aborted)).toBe(true);
+    expect(retrySignals.every((s) => !s.aborted)).toBe(true);
     // includes() compares by identity, unlike Jasmine's toContain.
-    expect(retrySignals.some((s) => firstSignals.includes(s))).toBeFalse();
-    expect(runner.isTranslating()).toBeTrue();
+    expect(retrySignals.some((s) => firstSignals.includes(s))).toBe(false);
+    expect(runner.isTranslating()).toBe(true);
 
     for (const call of service.takeAll()) call.resolve('translated');
     await flush();
 
-    expect(runner.isTranslating()).toBeFalse();
+    expect(runner.isTranslating()).toBe(false);
     expect(runner.failedFiles().length).toBe(0);
     expect(runner.doneFiles().length).toBe(2);
   });

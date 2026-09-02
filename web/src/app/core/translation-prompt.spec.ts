@@ -35,7 +35,7 @@ describe('buildUserMessage', () => {
   it('names both languages', () => {
     const msg = buildUserMessage('English', 'Arabic', WIRE, '', []);
     expect(msg).toContain('Translate from English to Arabic:');
-    expect(msg.endsWith(WIRE)).toBeTrue();
+    expect(msg.endsWith(WIRE)).toBe(true);
   });
 
   it('omits the source when auto-detecting', () => {
@@ -166,9 +166,9 @@ describe('buildBackTranslationUserMessage', () => {
 describe('buildScanUserMessage', () => {
   it('omits the source line when auto-detecting', () => {
     const withSource = buildScanUserMessage('English', 'Arabic', '[1] Hi');
-    expect(withSource.startsWith('Source language: English\n')).toBeTrue();
+    expect(withSource.startsWith('Source language: English\n')).toBe(true);
     const without = buildScanUserMessage('', 'Arabic', '[1] Hi');
-    expect(without.startsWith('Target language: Arabic')).toBeTrue();
+    expect(without.startsWith('Target language: Arabic')).toBe(true);
     expect(without).not.toContain('Source language');
   });
 });
@@ -183,7 +183,7 @@ describe('recurring phrases in the scan message', () => {
       + 'everywhere:\n- safety briefing\n- all right',
     );
     // The blocks stay last so nothing can be mistaken for one.
-    expect(msg.endsWith('[1] Hi')).toBeTrue();
+    expect(msg.endsWith('[1] Hi')).toBe(true);
     expect(msg.indexOf('Recurring phrases')).toBeLessThan(msg.indexOf('[1] Hi'));
   });
 
@@ -219,7 +219,7 @@ describe('recurring phrases in the scan message', () => {
     for (const dialect of ['', 'Egyptian Arabic']) {
       expect(buildScanUserMessage(
         'English', 'Arabic', '[1] Hi', dialect, ['safety briefing'],
-      ).endsWith('- safety briefing\n\n[1] Hi')).toBeTrue();
+      ).endsWith('- safety briefing\n\n[1] Hi')).toBe(true);
     }
   });
 
@@ -332,7 +332,7 @@ describe('buildAttributionUserMessage', () => {
       '- Alice (F)\n- Bob (M)', ['[10] Hi', '[11] Bye'],
     );
     expect(msg.indexOf('Characters:')).toBeLessThan(msg.indexOf('Scene:'));
-    expect(msg.endsWith('[10] Hi\n[11] Bye')).toBeTrue();
+    expect(msg.endsWith('[10] Hi\n[11] Bye')).toBe(true);
   });
 });
 
@@ -422,9 +422,9 @@ describe('per-request directives', () => {
       'Translate from English to Arabic:',
     ].map((needle) => msg.indexOf(needle));
     expect(order).toEqual([...order].sort((a, b) => a - b));
-    expect(order.every((i) => i >= 0)).toBeTrue();
+    expect(order.every((i) => i >= 0)).toBe(true);
     // The wire stays last so nothing can be mistaken for an input block.
-    expect(msg.endsWith(WIRE)).toBeTrue();
+    expect(msg.endsWith(WIRE)).toBe(true);
   });
 
   it('uses a given dialect in the scan instead of guessing the register', () => {
@@ -432,7 +432,7 @@ describe('per-request directives', () => {
     expect(msg).toContain(
       'Target variant: Egyptian Arabic. Use it as the <register> instead of inferring one.',
     );
-    expect(msg.endsWith('[1] Hi')).toBeTrue();
+    expect(msg.endsWith('[1] Hi')).toBe(true);
   });
 
   it('infers the register when no dialect is given', () => {

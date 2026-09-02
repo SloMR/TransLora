@@ -24,7 +24,7 @@ import {
 describe('call counts', () => {
   it('starts at zero for every pass', () => {
     const counts = emptyCallCounts();
-    expect(CALL_KINDS.every((kind) => counts[kind] === 0)).toBeTrue();
+    expect(CALL_KINDS.every((kind) => counts[kind] === 0)).toBe(true);
     expect(totalCalls(counts)).toBe(0);
   });
 

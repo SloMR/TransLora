@@ -1,6 +1,6 @@
 # TransLora web app
 
-The browser interface: an Angular 19 single-page app that parses subtitle files,
+The browser interface: an Angular 22 single-page app that parses subtitle files,
 calls an OpenAI-compatible LLM endpoint directly from the browser, and writes the
 translation back in the original format. No backend — nothing leaves the machine
 except the chat requests to the provider you choose.
@@ -18,7 +18,7 @@ npm start          # http://localhost:4200
 
 ```bash
 npm run lint       # eslint (angular-eslint + typescript-eslint)
-npm test           # Karma + Jasmine, watch mode
+npm test           # Vitest, watch mode
 npm run build      # production build; enforces the bundle budgets
 ```
 

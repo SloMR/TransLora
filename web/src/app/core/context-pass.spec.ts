@@ -148,8 +148,8 @@ Alice => آليس | female
   });
 
   it('returns an empty context for garbage', () => {
-    expect(parseContextResponse('').isEmpty()).toBeTrue();
-    expect(parseContextResponse('sorry I cannot help').isEmpty()).toBeTrue();
+    expect(parseContextResponse('').isEmpty()).toBe(true);
+    expect(parseContextResponse('sorry I cannot help').isEmpty()).toBe(true);
   });
 
   it('parses scene ranges and single-block scenes', () => {
@@ -364,35 +364,35 @@ describe('FileContext.renderForBatch', () => {
 describe('FileContext.hasCorrections', () => {
   it('is true when the batch names a character', () => {
     const c = ctx({ characters: [char('Alice', 'TargetAlice', 'female')] });
-    expect(c.hasCorrections([block(1, 'Alice, wait.')])).toBeTrue();
+    expect(c.hasCorrections([block(1, 'Alice, wait.')])).toBe(true);
   });
 
   it('is true for an idiom-only slice', () => {
     // The reviewer's idiom fix could otherwise only fire on a batch that
     // happened to also name a character or a term.
     const c = ctx({ idioms: [{ source: 'break a leg', target: 'بالتوفيق' }] });
-    expect(c.hasCorrections([block(1, 'Break a leg out there.')])).toBeTrue();
+    expect(c.hasCorrections([block(1, 'Break a leg out there.')])).toBe(true);
   });
 
   it('is false when the batch uses none of the pinned idioms', () => {
     const c = ctx({ idioms: [{ source: 'break a leg', target: 'بالتوفيق' }] });
-    expect(c.hasCorrections([block(1, 'Nothing to correct.')])).toBeFalse();
+    expect(c.hasCorrections([block(1, 'Nothing to correct.')])).toBe(false);
   });
 
   it('is false for a register-only slice the reviewer could not act on', () => {
     const c = ctx({ register: 'formal', notes: ['tone note'] });
-    expect(c.hasCorrections([block(1, 'Nothing to correct.')])).toBeFalse();
+    expect(c.hasCorrections([block(1, 'Nothing to correct.')])).toBe(false);
   });
 });
 
 describe('FileContext.isEmpty', () => {
   it('considers the register', () => {
-    expect(new FileContext().isEmpty()).toBeTrue();
-    expect(ctx({ register: 'Target language' }).isEmpty()).toBeFalse();
+    expect(new FileContext().isEmpty()).toBe(true);
+    expect(ctx({ register: 'Target language' }).isEmpty()).toBe(false);
   });
 
   it('considers scenes', () => {
-    expect(ctx({ scenes: [scene(1, 2, 'x')] }).isEmpty()).toBeFalse();
+    expect(ctx({ scenes: [scene(1, 2, 'x')] }).isEmpty()).toBe(false);
   });
 });
 
@@ -458,46 +458,46 @@ describe('needsAttribution', () => {
   ]);
 
   it('triggers when a multi-block scene mixes known genders', () => {
-    expect(needsAttribution(scene(1, 5, 'x', ['Alice', 'Bob']), genders)).toBeTrue();
+    expect(needsAttribution(scene(1, 5, 'x', ['Alice', 'Bob']), genders)).toBe(true);
     // One participant: nobody to tell apart, whatever the target.
-    expect(needsAttribution(scene(1, 5, 'x', ['Alice']), genders)).toBeFalse();
-    expect(needsAttribution(scene(1, 5, 'x', []), genders)).toBeFalse();
+    expect(needsAttribution(scene(1, 5, 'x', ['Alice']), genders)).toBe(false);
+    expect(needsAttribution(scene(1, 5, 'x', []), genders)).toBe(false);
   });
 
   it('triggers on an unknown gender when the target inflects for one', () => {
     // The gap the call exists to close: a scene whose genders the scan could
     // not name is exactly the one an Arabic or Hebrew target needs answered.
     const pair = scene(1, 5, 'x', ['Alice', 'Stranger']);
-    expect(needsAttribution(pair, genders, false, true)).toBeTrue();
-    expect(needsAttribution(pair, genders, false, false)).toBeFalse();
+    expect(needsAttribution(pair, genders, false, true)).toBe(true);
+    expect(needsAttribution(pair, genders, false, false)).toBe(false);
     // A target that does not inflect gains nothing from a lone speaker either.
     expect(needsAttribution(scene(1, 5, 'x', ['Alice']), genders, false, true))
-      .toBeFalse();
+      .toBe(false);
   });
 
   it('skips scenes shorter than the minimum block count', () => {
-    expect(needsAttribution(scene(1, 2, 'x', ['Alice', 'Bob']), genders)).toBeFalse();
+    expect(needsAttribution(scene(1, 2, 'x', ['Alice', 'Bob']), genders)).toBe(false);
     expect(needsAttribution(scene(1, 2, 'x', ['Alice', 'Bob']), genders, false, true))
-      .toBeFalse();
+      .toBe(false);
   });
 
   describe('with full attribution asked for', () => {
     it('fires for any scene with two participants, gender known or not', () => {
       expect(needsAttribution(scene(1, 5, 'x', ['Alice', 'Stranger']), genders, true))
-        .toBeTrue();
+        .toBe(true);
     });
 
     it('fires for a lone participant whatever the target', () => {
       expect(needsAttribution(scene(1, 5, 'x', ['Alice']), genders, true, true))
-        .toBeTrue();
+        .toBe(true);
       expect(needsAttribution(scene(1, 5, 'x', ['Alice']), genders, true, false))
-        .toBeTrue();
+        .toBe(true);
     });
 
     it('still needs a participant and the minimum block count', () => {
-      expect(needsAttribution(scene(1, 5, 'x', []), genders, true, true)).toBeFalse();
+      expect(needsAttribution(scene(1, 5, 'x', []), genders, true, true)).toBe(false);
       expect(needsAttribution(scene(1, 2, 'x', ['Alice', 'Bob']), genders, true, true))
-        .toBeFalse();
+        .toBe(false);
     });
   });
 });
@@ -633,7 +633,7 @@ describe('idiom hints', () => {
   });
 
   it('counts towards a non-empty context', () => {
-    expect(c.isEmpty()).toBeFalse();
+    expect(c.isEmpty()).toBe(false);
   });
 });
 
@@ -674,8 +674,8 @@ describe('serializeForScan', () => {
       for (let i = from; i <= to; i++) if (out.includes(`-${i}\n`) || out.endsWith(`-${i}`)) return true;
       return false;
     };
-    expect(has(1, 20)).toBeTrue();
-    expect(has(450, 499)).toBeTrue();
+    expect(has(1, 20)).toBe(true);
+    expect(has(450, 499)).toBe(true);
   });
 
   it('joins multi-line block text onto the [N] line', () => {
@@ -713,7 +713,7 @@ describe('multi-word glossary terms', () => {
   });
 
   it('treats a phrase term as something the reviewer can correct', () => {
-    expect(c.hasCorrections([block(94, 'a safety briefing session')])).toBeTrue();
+    expect(c.hasCorrections([block(94, 'a safety briefing session')])).toBe(true);
   });
 });
 

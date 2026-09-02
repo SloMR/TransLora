@@ -63,7 +63,7 @@ describe('the script table', () => {
   });
 
   it('keeps Hebrew RTL but on ASCII punctuation', () => {
-    expect(SCRIPT_NORMS['hebrew']!.rtl).toBeTrue();
+    expect(SCRIPT_NORMS['hebrew']!.rtl).toBe(true);
     expect([...ARABIC_PUNCTUATION_SCRIPTS]).toEqual(['arabic']);
   });
 });

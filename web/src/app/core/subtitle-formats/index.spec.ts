@@ -21,7 +21,7 @@ describe('parseSubtitle', () => {
     const doc = parseSubtitle('a.vtt', src);
     expect(doc.format).toBe('vtt');
     expect(doc.blocks.length).toBe(2);
-    expect(doc.rebuild(doc.blocks).startsWith('WEBVTT')).toBeTrue();
+    expect(doc.rebuild(doc.blocks).startsWith('WEBVTT')).toBe(true);
   });
 
   it('preserves ASS script info, styles and \\N line breaks', () => {
@@ -133,8 +133,8 @@ describe('parseSubtitle', () => {
     for (const [name, src, tail] of cases) {
       const doc = parseSubtitle(name, src);
       const out = doc.rebuild([{ ...doc.blocks[0]!, text: 'TRANSLATED' }]);
-      expect(out).withContext(name).toContain('TRANSLATED');
-      expect(out).withContext(name).toContain(tail);
+      expect(out, name).toContain('TRANSLATED');
+      expect(out, name).toContain(tail);
     }
   });
 });
@@ -172,12 +172,12 @@ describe('CRLF cue text', () => {
   for (const [name, src] of fixtures) {
     it(`hands ${name} cue text with no CR and a true line count`, () => {
       const blocks = parseSubtitle(name, src).blocks;
-      expect(blocks.length).withContext(name).toBe(2);
+      expect(blocks.length, name).toBe(2);
       for (const b of blocks) {
-        expect(b.text).withContext(name).not.toContain('\r');
+        expect(b.text, name).not.toContain('\r');
       }
-      expect(blocks[0]!.text.split('\n').length).withContext(name).toBe(1);
-      expect(blocks[1]!.text.split('\n').length).withContext(name).toBe(2);
+      expect(blocks[0]!.text.split('\n').length, name).toBe(1);
+      expect(blocks[1]!.text.split('\n').length, name).toBe(2);
     });
   }
 

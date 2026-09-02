@@ -179,7 +179,7 @@ describe('TranslationService', () => {
 
   it('rejects a document with no blocks without calling the provider', async () => {
     const doc: SubtitleDocument = { format: 'srt', blocks: [], rebuild: () => '' };
-    await expectAsync(translate(doc)).toBeRejectedWithError(/No subtitle blocks/);
+    await expect(translate(doc)).rejects.toThrow(/No subtitle blocks/);
   });
 
   it('translates every batch and reports progress', async () => {
@@ -260,7 +260,7 @@ describe('TranslationService', () => {
       );
     }
 
-    await expectAsync(run).toBeRejectedWithError(
+    await expect(run).rejects.toThrow(
       /Batch failed after 4 attempt\(s\) \(block 1\): slow down/,
     );
     // A rate limit must not consume the split budget: no half-batch requests.
@@ -279,12 +279,12 @@ describe('TranslationService', () => {
       { status: 400, statusText: 'Bad Request' },
     );
 
-    await expectAsync(run).toBeRejectedWithError(/HTTP 400: unknown model \(block 1\)/);
+    await expect(run).rejects.toThrow(/HTTP 400: unknown model \(block 1\)/);
     await settle();
     // Scan + the three in-flight batches; batches 4-6 are never requested.
     expect(seen.length).toBe(4);
-    expect(inFlight[1]!.cancelled).toBeTrue();
-    expect(inFlight[2]!.cancelled).toBeTrue();
+    expect(inFlight[1]!.cancelled).toBe(true);
+    expect(inFlight[2]!.cancelled).toBe(true);
   }, 20_000);
 
   it('gives up on a network failure after one retry and explains CORS', async () => {
@@ -296,7 +296,7 @@ describe('TranslationService', () => {
       (await nextRequest(`network attempt ${i + 1}`)).error(new ProgressEvent('error'));
     }
 
-    await expectAsync(run).toBeRejectedWithError(/Could not reach the API \(network error or CORS\)/);
+    await expect(run).rejects.toThrow(/Could not reach the API \(network error or CORS\)/);
     await settle();
     expect(seen.length).toBe(3);
   }, 20_000);
@@ -313,7 +313,7 @@ describe('TranslationService', () => {
     const stalled = await nextRequest('the stalled batch');
     // Never answered: the request must be abandoned, not awaited forever.
     const retry = await nextRequest('the retry');
-    expect(stalled.cancelled).toBeTrue();
+    expect(stalled.cancelled).toBe(true);
     retry.flush(chat(wireFor([1, 2])));
 
     expect(await run).toBe('T1\nT2');
@@ -329,7 +329,7 @@ describe('TranslationService', () => {
     await flushScan();
     await nextRequest('the stalled batch');
 
-    await expectAsync(run).toBeRejectedWithError(/Provider did not respond within 1s/);
+    await expect(run).rejects.toThrow(/Provider did not respond within 1s/);
   }, 20_000);
 
   it('cancels in-flight requests and rejects when the caller aborts', async () => {
@@ -341,8 +341,8 @@ describe('TranslationService', () => {
     const batch = await nextRequest('the first batch');
     controller.abort();
 
-    await expectAsync(run).toBeRejectedWith(jasmine.any(TranslationCancelledError));
-    expect(batch.cancelled).toBeTrue();
+    await expect(run).rejects.toThrow(TranslationCancelledError);
+    expect(batch.cancelled).toBe(true);
     await settle();
     expect(seen.length).toBe(2);
   });
@@ -594,7 +594,7 @@ describe('TranslationService', () => {
 
     it('sends no Authorization header for a keyless local server', async () => {
       const req = await firstRequestWith({ ...PROVIDER, apiKey: 'none' });
-      expect(req.request.headers.has('Authorization')).toBeFalse();
+      expect(req.request.headers.has('Authorization')).toBe(false);
     });
   });
 
@@ -604,7 +604,7 @@ describe('TranslationService', () => {
       const run = translate(doc, { batchSize: 2, maxRetries: 1 });
       await flushScan();
       (await nextRequest('the batch')).flush(body);
-      await expectAsync(run).toBeRejectedWithError(pattern);
+      await expect(run).rejects.toThrow(pattern);
     }
 
     it('treats a truncated reply as retryable rather than a count mismatch', async () => {
@@ -743,7 +743,7 @@ describe('TranslationService', () => {
       // Already corrected, so the second one is just a 400 like any other.
       (await nextRequest('the corrected batch')).flush(TOKEN_PARAM_400, BAD_REQUEST);
 
-      await expectAsync(run).toBeRejectedWithError(/HTTP 400.*max_tokens.*\(block 1\)/);
+      await expect(run).rejects.toThrow(/HTTP 400.*max_tokens.*\(block 1\)/);
       await settle();
       expect(seen.length).toBe(3);
     }, 20_000);
@@ -788,7 +788,7 @@ describe('TranslationService', () => {
         { error: { message: 'unknown model' } }, BAD_REQUEST,
       );
 
-      await expectAsync(run).toBeRejectedWithError(/HTTP 400: unknown model \(block 1\)/);
+      await expect(run).rejects.toThrow(/HTTP 400: unknown model \(block 1\)/);
       await settle();
       expect(seen.length).toBe(2);
     });
@@ -867,7 +867,7 @@ describe('TranslationService', () => {
       expect(bodyOf(last).max_tokens).toBe(budget * 4);
       last.flush(ALL_REASONING);
 
-      await expectAsync(run).toBeRejectedWithError(
+      await expect(run).rejects.toThrow(
         /spent all of it reasoning.*\(block 1\)/,
       );
       // Doubling stops at the cap instead of spending the retry budget too.
@@ -945,8 +945,8 @@ describe('TranslationService', () => {
       const source = '{\\i1}it is not always easy\nto notice when the tide turns{\\i0}';
       const { texts } = await finalize([[source, LONG_AR]]);
       const [first, second] = texts[0]!.split('\n');
-      expect(first!.startsWith('{\\i1}')).toBeTrue();
-      expect(second!.endsWith('{\\i0}')).toBeTrue();
+      expect(first!.startsWith('{\\i1}')).toBe(true);
+      expect(second!.endsWith('{\\i0}')).toBe(true);
     });
 
     it('leaves the line count alone without reflow but still fixes punctuation', async () => {
@@ -1167,7 +1167,7 @@ describe('TranslationService', () => {
     it('keeps the original when the retry is no better', async () => {
       const { texts, notices } = await runWithRetry('س ص ع');
       expect(texts).toEqual(['س ص ع']);
-      expect(notices).not.toContain(jasmine.stringMatching(/re-translated/));
+      expect(notices).not.toContain(expect.stringMatching(/re-translated/));
     });
 
     it('keeps the original when the retry does not even validate', async () => {
@@ -1459,12 +1459,12 @@ describe('TranslationService', () => {
 
     it('says nothing about the variant the run asked for', async () => {
       expect(await runVariant(4, { dialect: 'Egyptian Arabic' }))
-        .not.toContain(jasmine.stringMatching(/Output looks like/));
+        .not.toContain(expect.stringMatching(/Output looks like/));
     });
 
     it('says nothing about a file in the standard written form', async () => {
       expect(await runVariant(0))
-        .not.toContain(jasmine.stringMatching(/Output looks like/));
+        .not.toContain(expect.stringMatching(/Output looks like/));
     });
   });
 
@@ -1515,7 +1515,7 @@ describe('TranslationService', () => {
 
     it('says nothing while one wording runs through all of them', async () => {
       const { notices } = await runPhrase(ONE_WAY, { fixFlagged: false });
-      expect(notices).not.toContain(jasmine.stringMatching(/is rendered/));
+      expect(notices).not.toContain(expect.stringMatching(/is rendered/));
     });
 
     it('re-issues the batches it landed in, naming the phrase', async () => {
