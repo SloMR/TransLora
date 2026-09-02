@@ -7,16 +7,16 @@ name = "translora"
 version = "0.5.0"
 description = "AI-powered subtitle translator with batched LLM calls and block-level validation."
 # No `readme`: it lives above this directory, out of reach of a PEP 517 build.
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
-    "httpx>=0.27.0",
-    "pysubs2>=1.7.0",
+    "httpx>=0.28.1",
+    "pysubs2>=1.9.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0.0",
+    "pytest>=9.1.1",
 ]
 
 # Ship nothing: `core` is a script-local package name, not one to squat on PyPI.
