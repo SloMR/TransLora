@@ -41,7 +41,7 @@ describe('AppComponent', () => {
       for (const sel of ['.nav', '.hero', '.card-files', '.card-settings', '.action-card',
                          '.dropzone', '.lang-grid', '.provider-pills', '.advanced-toggle',
                          '#source-lang', '#target-lang', '.btn-translate']) {
-        expect(el.querySelector(sel)).withContext(sel).not.toBeNull();
+        expect(el.querySelector(sel), sel).not.toBeNull();
       }
 
       // The advanced disclosure opens inside the settings card it is projected into.
@@ -173,7 +173,7 @@ describe('AppComponent', () => {
         'a.ar.srt',
         'c.ar.srt',
       ]);
-      expect(app.runner.fileStatuses().every((s) => s.content === 'out:srt')).toBeTrue();
+      expect(app.runner.fileStatuses().every((s) => s.content === 'out:srt')).toBe(true);
     });
   });
 
@@ -191,7 +191,7 @@ describe('AppComponent', () => {
       await flush();
 
       const call = service.pending[0]!;
-      expect(call.quality).toEqual(jasmine.objectContaining({
+      expect(call.quality).toEqual(expect.objectContaining({
         reflow: false,
         formality: 'informal',
         dialect: 'Egyptian Arabic',
@@ -220,7 +220,7 @@ describe('AppComponent', () => {
       await flush();
 
       const call = service.pending[0]!;
-      expect(call.quality).toEqual(jasmine.objectContaining({
+      expect(call.quality).toEqual(expect.objectContaining({
         reviewApiUrl: 'https://cloud.test/v1/chat/completions',
         reviewApiKey: 'sk-review-key-goes-here',
         reviewModel: 'big-model',
@@ -241,7 +241,7 @@ describe('AppComponent', () => {
       await flush();
 
       const call = service.pending[0]!;
-      expect(call.quality).toEqual(jasmine.objectContaining({
+      expect(call.quality).toEqual(expect.objectContaining({
         fixFlagged: false, verifyAdequacy: true, fullAttribution: true,
       }));
 

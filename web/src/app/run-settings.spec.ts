@@ -134,7 +134,7 @@ describe('RunSettings', () => {
           expect(restored.formality()).toBe('informal');
           expect(restored.dialect()).toBe('Brazilian Portuguese');
           expect(restored.maxLineChars()).toBe(38);
-          expect(restored.reflow()).toBeFalse();
+          expect(restored.reflow()).toBe(false);
         },
       );
     });
@@ -143,9 +143,9 @@ describe('RunSettings', () => {
       restoredWith(
         { fixFlagged: false, verifyAdequacy: true, fullAttribution: true },
         (restored) => {
-          expect(restored.fixFlagged()).toBeFalse();
-          expect(restored.verifyAdequacy()).toBeTrue();
-          expect(restored.fullAttribution()).toBeTrue();
+          expect(restored.fixFlagged()).toBe(false);
+          expect(restored.verifyAdequacy()).toBe(true);
+          expect(restored.fullAttribution()).toBe(true);
         },
       );
     });
@@ -171,7 +171,7 @@ describe('RunSettings', () => {
 
       settings.sendTemperature.set(false);
       settings.persist();
-      expect(new RunSettings().sendTemperature()).toBeFalse();
+      expect(new RunSettings().sendTemperature()).toBe(false);
 
       settings.resetDefaults();
       expect(settings.sendTemperature()).toBe(DEFAULT_SEND_TEMPERATURE);

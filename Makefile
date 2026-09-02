@@ -57,8 +57,8 @@ test: test-cli test-web ## Run both test suites
 test-cli: ## pytest
 	cd cli && $(PY) pytest
 
-test-web: ## Karma, headless, with coverage
-	cd web && npx ng test --watch=false --browsers=ChromeHeadless --code-coverage
+test-web: ## Vitest, jsdom, with coverage
+	cd web && npx ng test --watch=false --coverage
 
 build-web: ## Production build (enforces the bundle budgets)
 	cd web && npx ng build --configuration production

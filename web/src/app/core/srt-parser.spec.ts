@@ -125,34 +125,34 @@ describe('srt-parser', () => {
     it('passes on matching structure', () => {
       const a = [b(1, '00:00:01,000 --> 00:00:02,000')];
       const out = [b(1, '00:00:01,000 --> 00:00:02,000', 'translated')];
-      expect(validateBatch(a, out).ok).toBeTrue();
+      expect(validateBatch(a, out).ok).toBe(true);
     });
 
     it('fails on count mismatch', () => {
       const a = [b(1, '00:00:01,000 --> 00:00:02,000')];
       const result = validateBatch(a, []);
-      expect(result.ok).toBeFalse();
+      expect(result.ok).toBe(false);
       expect(result.error.toLowerCase()).toContain('count');
     });
 
     it('fails on number mismatch', () => {
       const a = [b(1, '00:00:01,000 --> 00:00:02,000')];
       const out = [b(2, '00:00:01,000 --> 00:00:02,000')];
-      expect(validateBatch(a, out).ok).toBeFalse();
+      expect(validateBatch(a, out).ok).toBe(false);
     });
 
     it('fails when timestamp was modified', () => {
       const a = [b(1, '00:00:01,000 --> 00:00:02,000')];
       const out = [b(1, '00:00:01,000 --> 00:00:02,500')];
       const result = validateBatch(a, out);
-      expect(result.ok).toBeFalse();
+      expect(result.ok).toBe(false);
       expect(result.error.toLowerCase()).toContain('timestamp');
     });
 
     it('ignores a blank output timestamp (wire blocks carry none)', () => {
       const a = [b(1, '00:00:01,000 --> 00:00:02,000', 'hi')];
       const out = [b(1, '', 'hola')];
-      expect(validateBatch(a, out).ok).toBeTrue();
+      expect(validateBatch(a, out).ok).toBe(true);
     });
 
     it('fails on shifted numbering', () => {
@@ -160,7 +160,7 @@ describe('srt-parser', () => {
       const a = [b(1, ts(1), 'one'), b(2, ts(2), 'two'), b(3, ts(3), 'three')];
       const out = [b(2, ts(1), 'deux'), b(3, ts(2), 'trois'), b(4, ts(3), 'quatre')];
       const result = validateBatch(a, out);
-      expect(result.ok).toBeFalse();
+      expect(result.ok).toBe(false);
       expect(result.error).toContain('index 0');
     });
 
@@ -174,14 +174,14 @@ describe('srt-parser', () => {
         b(2, '00:00:03,000 --> 00:00:04,000', '   '),
       ];
       const result = validateBatch(a, out);
-      expect(result.ok).toBeFalse();
+      expect(result.ok).toBe(false);
       expect(result.error.toLowerCase()).toContain('empty');
     });
 
     it('allows an empty output for an empty source block', () => {
       const a = [b(1, '00:00:01,000 --> 00:00:02,000', '')];
       const out = [b(1, '00:00:01,000 --> 00:00:02,000', '')];
-      expect(validateBatch(a, out).ok).toBeTrue();
+      expect(validateBatch(a, out).ok).toBe(true);
     });
 
     it('fails when a timestamp line leaked into the text', () => {
@@ -190,7 +190,7 @@ describe('srt-parser', () => {
         b(1, '00:00:01,000 --> 00:00:02,000', 'hola\n00:00:05,000 --> 00:00:06,000'),
       ];
       const result = validateBatch(a, out);
-      expect(result.ok).toBeFalse();
+      expect(result.ok).toBe(false);
       expect(result.error.toLowerCase()).toContain('leaked');
     });
 
@@ -411,15 +411,15 @@ describe('reflowToLineCount', () => {
     const out = reflowToLineCount('一二三四五六，七八九十。', 2, 6, 'han');
     expect(out).toBe('一二三四五六，\n七八九十。');
     for (const line of out.split('\n')) {
-      expect('、。，．！？；：）」'.includes(line[0]!)).toBeFalse();
+      expect('、。，．！？；：）」'.includes(line[0]!)).toBe(false);
     }
   });
 
   it('never splits a formatting tag across lines', () => {
     const text = '{\\i1}it is not always easy to notice when the tide turns{\\i0}';
     const out = reflowToLineCount(text, 2, 42, 'latin');
-    expect(out.split('\n')[0]!.startsWith(ITALIC_OPEN)).toBeTrue();
-    expect(out.split('\n')[1]!.endsWith(ITALIC_CLOSE)).toBeTrue();
+    expect(out.split('\n')[0]!.startsWith(ITALIC_OPEN)).toBe(true);
+    expect(out.split('\n')[1]!.endsWith(ITALIC_CLOSE)).toBe(true);
     expect(findTags(out)).toEqual(findTags(text));
   });
 
@@ -976,7 +976,7 @@ describe('empty tag pairs', () => {
   it('normalises a duplicated wrap, the shape a real run shipped', () => {
     const r = repairTags(cue(EMPTY_PAIR_CUE).en, cue(EMPTY_PAIR_CUE).target);
     expect(r.text).toBe('{\\i1}انتهى العبور.{\\i0}');
-    expect(r.ok).toBeTrue();
+    expect(r.ok).toBe(true);
   });
 });
 
@@ -1127,7 +1127,7 @@ describe('the defects the synthetic fixture plants', () => {
     it(`spells the restored ${lang} mark the way that script spells it`, () => {
       const { script } = normsFor(lang);
       const c = cue(LANDMARKS[lang].flattenedMark);
-      expect(c.en.endsWith('!')).toBeTrue();
+      expect(c.en.endsWith('!')).toBe(true);
       expect(restoreTerminalPunctuation(c.en, c.target, script))
         .toBe(c.target.slice(0, -1) + RESTORED_MARK[lang]);
     });

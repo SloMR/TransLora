@@ -143,7 +143,7 @@ jobs:
         run: make typecheck-cli
 
   web:
-    name: Web (lint, build, Karma)
+    name: Web (lint, build, Vitest)
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest

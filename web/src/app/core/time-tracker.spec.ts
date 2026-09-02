@@ -25,12 +25,18 @@ describe('TimeTracker', () => {
 
   beforeEach(() => {
     nowValue = 1000;
-    spyOn(performance, 'now').and.callFake(() => nowValue);
-    jasmine.clock().install();
+    vi.spyOn(performance, 'now').mockImplementation(() => nowValue);
+    // Every clock but `performance`: the tracker reads elapsed time through
+    // performance.now(), which the spy above drives by hand. Letting Vitest
+    // fake that one too would make advanceTimersByTime move it as well, and
+    // the assertions would measure the timer instead of the tracker.
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
   });
 
   afterEach(() => {
-    jasmine.clock().uninstall();
+    vi.useRealTimers();
   });
 
   describe('formatMs', () => {
@@ -60,12 +66,12 @@ describe('TimeTracker', () => {
       tracker.begin();
       nowValue += 5_000;
       // Advance the internal ticker so nowMs signal updates.
-      jasmine.clock().tick(500);
+      vi.advanceTimersByTime(500);
       expect(tracker.elapsedMs()).toBe(5_000);
 
       tracker.finish();
       nowValue += 10_000;
-      jasmine.clock().tick(500);
+      vi.advanceTimersByTime(500);
       expect(tracker.elapsedMs()).toBe(5_000);
       tracker.destroy();
     });
@@ -89,7 +95,7 @@ describe('TimeTracker', () => {
 
       tracker.begin();
       nowValue += 10_000; // 10s elapsed to finish 1/10 of a file
-      jasmine.clock().tick(500);
+      vi.advanceTimersByTime(500);
 
       // fractionDone = 0.1, total = 1, remaining = 10s * (1 - 0.1) / 0.1 = 90s.
       const eta = tracker.etaMs();
@@ -115,7 +121,7 @@ describe('TimeTracker', () => {
       const { tracker } = setup({});
       tracker.begin();
       nowValue += 5_000;
-      jasmine.clock().tick(500);
+      vi.advanceTimersByTime(500);
       tracker.finish();
       expect(tracker.elapsedMs()).toBe(5_000);
 
@@ -128,7 +134,7 @@ describe('TimeTracker', () => {
       const { tracker } = setup({});
       tracker.begin();
       nowValue += 5_000;
-      jasmine.clock().tick(500);
+      vi.advanceTimersByTime(500);
       tracker.finish(); // frozen total = 5_000
 
       nowValue += 1_000; // time passes while idle
@@ -136,7 +142,7 @@ describe('TimeTracker', () => {
       expect(tracker.elapsedMs()).toBe(5_000);
 
       nowValue += 3_000;
-      jasmine.clock().tick(500);
+      vi.advanceTimersByTime(500);
       expect(tracker.elapsedMs()).toBe(8_000);
 
       tracker.finish();
