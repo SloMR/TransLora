@@ -9,8 +9,8 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
-  <a href="https://angular.dev"><img alt="Angular 19" src="https://img.shields.io/badge/Angular-19-DD0031?logo=angular&logoColor=white"></a>
-  <a href="https://www.python.org/"><img alt="Python 3.10+" src="https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white"></a>
+  <a href="https://angular.dev"><img alt="Angular 22" src="https://img.shields.io/badge/Angular-22-DD0031?logo=angular&logoColor=white"></a>
+  <a href="https://www.python.org/"><img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white"></a>
   <a href="https://www.typescriptlang.org/"><img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white"></a>
   <img alt="Platform: Web · CLI" src="https://img.shields.io/badge/platform-Web%20%C2%B7%20CLI-lightgrey">
 </p>
@@ -21,8 +21,8 @@ Works with any OpenAI-compatible endpoint — local servers, OpenAI, Groq, DeepS
 
 Two interfaces share the same pipeline:
 
-- **Web app** — an Angular 19 single-page app, pure browser, no backend required.
-- **CLI** — a small Python 3.10+ tool for scripting and bulk jobs.
+- **Web app** — an Angular 22 single-page app, pure browser, no backend required.
+- **CLI** — a small Python 3.12+ tool for scripting and bulk jobs.
 
 ## Highlights
 
@@ -285,10 +285,10 @@ Anything else that speaks the OpenAI chat-completions protocol will work the sam
 
 ```
 .
-├── web/        Angular 19 app (primary interface)
+├── web/        Angular 22 app (primary interface)
 │   ├── src/app/        UI: file intake, provider form, advanced panel, run results
 │   └── src/app/core/   Parsers, prompts, glossary prepass, repairs, batching, HTTP
-├── cli/        Python 3.10+ CLI
+├── cli/        Python 3.12+ CLI
 │   ├── translora.py    Entry point
 │   └── core/           The same pipeline, plus resume checkpoints and the live terminal UI
 ├── scripts/    Release-notes generator and version checks
@@ -297,8 +297,8 @@ Anything else that speaks the OpenAI chat-completions protocol will work the sam
 
 ## Requirements
 
-- **Web**: Node 20 (see `.nvmrc`); the Angular CLI comes from `npm install`, no global install needed
-- **CLI**: Python 3.10+ with `httpx` and `pysubs2` (both in `requirements.txt` / `pyproject.toml`)
+- **Web**: Node 24 (see `.nvmrc`); the Angular CLI comes from `npm install`, no global install needed
+- **CLI**: Python 3.12+ with `httpx` and `pysubs2` (both in `requirements.txt` / `pyproject.toml`)
 - An OpenAI-compatible LLM endpoint (local or hosted)
 
 ## Roadmap
