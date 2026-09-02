@@ -193,7 +193,7 @@ export async function translateBatch(
       // The budget was already doubled to its ceiling inside the transport;
       // asking again only buys the same empty reply.
       if (err instanceof ReasoningBudgetError) {
-        throw new Error(`${err.message} (block ${firstBlockNum})`);
+        throw new Error(`${err.message} (block ${firstBlockNum})`, { cause: err });
       }
 
       // null = never reached HTTP (timeout, unusable body); retryable.
@@ -208,12 +208,12 @@ export async function translateBatch(
       );
 
       if (status !== null && !isRetryableStatus(status)) {
-        throw new Error(`HTTP ${status}: ${lastError} (block ${firstBlockNum})`);
+        throw new Error(`HTTP ${status}: ${lastError} (block ${firstBlockNum})`, { cause: err });
       }
 
       // Status 0 is CORS, DNS or offline, not a busy server: one retry, not the budget.
       if (status === 0 && transportFailures >= 2) {
-        throw new Error(`${lastError} (block ${firstBlockNum})`);
+        throw new Error(`${lastError} (block ${firstBlockNum})`, { cause: err });
       }
 
       if (transportFailures < transportBudget) {

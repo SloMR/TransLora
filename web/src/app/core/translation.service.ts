@@ -2,7 +2,7 @@
 // after-the-fact checks that flag cues, the capped repair of the batches they
 // land in, and stitching the translated blocks back into the source document.
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import {
   DEFAULT_BATCH_SIZE,
   DEFAULT_CONCURRENCY,
@@ -111,7 +111,8 @@ interface FlaggedBatch {
 
 @Injectable({ providedIn: 'root' })
 export class TranslationService {
-  constructor(private chat: ChatClient) {}
+  private chat = inject(ChatClient);
+
 
   async translateDocument(
     doc: SubtitleDocument,
