@@ -534,8 +534,14 @@ def test_the_rtl_punctuation_map_is_identical_in_both_trees() -> None:
     assert _ts_string_record(ts_source, "RTL_PUNCTUATION") == mine
 
 
+def test_the_cjk_punctuation_map_is_identical_in_both_trees() -> None:
+    mine, ts_source = _both_sides("CJK_PUNCTUATION")
+    assert _ts_string_record(ts_source, "CJK_PUNCTUATION") == mine
+
+
 @pytest.mark.parametrize("name", [
-    "RTL_SCRIPTS", "ARABIC_PUNCTUATION_SCRIPTS", "NO_SPACE_SCRIPTS",
+    "RTL_SCRIPTS", "ARABIC_PUNCTUATION_SCRIPTS", "CJK_PUNCTUATION_SCRIPTS",
+    "NO_SPACE_SCRIPTS",
     "DIALOGUE_DASHES", "TERMINAL_MARKS",
     # A word only one tree treats as filler changes which phrases get pinned,
     # and so which renderings the glossary fixes.

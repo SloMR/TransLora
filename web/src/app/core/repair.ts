@@ -12,6 +12,7 @@
 import { VARIANT_DRIFT_FRACTION } from './constants';
 import {
   ARABIC_PUNCTUATION_SCRIPTS,
+  CJK_PUNCTUATION_SCRIPTS,
   DEFAULT_MAX_CHARS_PER_LINE,
   DEFAULT_SCRIPT,
   GENERIC_VARIANT,
@@ -38,6 +39,10 @@ const NO_LINE_START = '、。，．！？；：）〕】》」』〉”｝〗〙
 const BREAK_AFTER = '、。，．！？；：）〕】》」』';
 
 export const RTL_PUNCTUATION: Record<string, string> = { '?': '؟', ',': '،', ';': '؛' };
+// The same idea for the scripts that end a sentence on a fullwidth mark. Only
+// the terminal three: a CJK comma is a line-break hint the reflow already
+// knows about, and re-pointing it here would fight that pass.
+export const CJK_PUNCTUATION: Record<string, string> = { '.': '。', '!': '！', '?': '？' };
 const URL_RE = /(?:[a-zA-Z][\w+.-]*:\/\/|www\.)\S+/g;
 const ARABIC_RE = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
 const LATIN_RE = /[0-9A-Za-z]/;
@@ -512,10 +517,12 @@ export function stripTags(text: string): string {
   return text.replace(NON_TEXT_RE, ' ');
 }
 
+/** The glyph `mark` is written with in this script. Without it a cue ending on
+ * 。 reads as ending on no mark at all, and a flattened "!" ships. */
 function targetMark(mark: string, script: string): string {
-  return ARABIC_PUNCTUATION_SCRIPTS.has(script)
-    ? (RTL_PUNCTUATION[mark] ?? mark)
-    : mark;
+  if (ARABIC_PUNCTUATION_SCRIPTS.has(script)) return RTL_PUNCTUATION[mark] ?? mark;
+  if (CJK_PUNCTUATION_SCRIPTS.has(script)) return CJK_PUNCTUATION[mark] ?? mark;
+  return mark;
 }
 
 function median(values: number[]): number {

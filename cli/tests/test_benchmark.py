@@ -12,11 +12,10 @@ punctuation map, the vocalisation strip and the variant check. Each is
 file-level, so it needs a file to be level against, and the cues past role 12
 are what that file is made of.
 
-Two passes cannot see a defect every slice plants, and both blind spots are
-pinned by a test rather than left for someone to find as a silent gap:
-`content_words` splits on spaces, so the cross-cue run test never fires for
-Japanese or Chinese; and `TERMINAL_MARKS` holds the ASCII three, so a cue
-ending on 。 reads as ending on no mark at all.
+One pass cannot see a defect every slice plants, and the blind spot is pinned
+by a test rather than left for someone to find as a silent gap: `content_words`
+splits on spaces, so the cross-cue run test never fires for Japanese or
+Chinese.
 
 Unit tests elsewhere pin each rule on small hand-built cases; these pin what
 the rules do to a whole file, which is the only place a detector's
@@ -91,10 +90,11 @@ CUE_LEAK = CUE_FORTY_CHARS = 12
 # spaces yields one token per cue, so no run is ever shared.
 BLEED_VISIBLE = (ARABIC, RUSSIAN, SPANISH)
 BLEED_BLIND = (JAPANESE, CHINESE)
-# The scripts whose flattened terminal mark is restored. `_target_mark`
-# re-points the ASCII three for Arabic only, and 。 is not one of them.
-MARK_RESTORED = (ARABIC, RUSSIAN, SPANISH)
-MARK_BLIND = (JAPANESE, CHINESE)
+# Every script's flattened terminal mark is restored, each in its own glyph:
+# `_target_mark` re-points the ASCII three through RTL_PUNCTUATION for Arabic
+# and CJK_PUNCTUATION for Han and Japanese.
+RESTORED_MARK = {ARABIC: "!", JAPANESE: "！", CHINESE: "！",
+                 RUSSIAN: "!", SPANISH: "!"}
 
 # === What the Arabic slice alone carries, past role 12 ======================
 
@@ -513,10 +513,8 @@ def test_vocalisation_stripping_is_licensed_by_the_target_too(run) -> None:
 # === Terminal punctuation ====================================================
 
 
-def test_the_flattened_mark_is_restored_in_every_script_that_knows_it(
-    slices,
-) -> None:
-    for lang in MARK_RESTORED:
+def test_the_flattened_mark_is_restored_in_every_script(slices) -> None:
+    for lang in LANGUAGES:
         source, output = slices[lang]
         script = script_for(lang)
         restored = [
@@ -527,20 +525,19 @@ def test_the_flattened_mark_is_restored_in_every_script_that_knows_it(
         assert restored == [CUE_FLATTENED_MARK], lang
 
 
-def test_a_cjk_full_stop_is_not_a_mark_the_pass_knows(slices) -> None:
-    """The same defect, planted the way a real CJK run writes it.
-    `TERMINAL_MARKS` holds the ASCII three and `_target_mark` re-points them
-    for Arabic only, so a cue ending on 。 reads as ending on no mark at all
-    and is left exactly as the model wrote it."""
-    for lang in MARK_BLIND:
+def test_the_restored_mark_is_spelled_the_way_the_script_spells_it(
+    slices,
+) -> None:
+    """A CJK cue ends its sentence on a fullwidth mark, so an ASCII "!" welded
+    onto kana is the same defect wearing a different hat."""
+    for lang in LANGUAGES:
         source, output = slices[lang]
-        script = script_for(lang)
         src = _by_number(source)[CUE_FLATTENED_MARK]
         out = _by_number(output)[CUE_FLATTENED_MARK]
-        assert src.text.endswith("!") and out.text.endswith("。"), lang
-        assert restore_terminal_punctuation(src.text, out.text, script) == out.text
-        for s, o in zip(source, output, strict=True):
-            assert restore_terminal_punctuation(s.text, o.text, script) == o.text
+        assert src.text.endswith("!"), lang
+        assert restore_terminal_punctuation(
+            src.text, out.text, script_for(lang),
+        ) == out.text[:-1] + RESTORED_MARK[lang], lang
 
 
 # === Arabic-only passes, measured against the scripts they must not touch ====
