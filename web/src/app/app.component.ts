@@ -5,6 +5,7 @@ import {
   effect,
   inject,
   signal,
+  ChangeDetectionStrategy
 } from '@angular/core';
 import { AdvancedPanelComponent } from './advanced-panel/advanced-panel.component';
 import { SUBTITLE_EXTS, UploadedFile } from './core/file-types';
@@ -27,6 +28,7 @@ import { RunResultsComponent } from './run-results/run-results.component';
     RunResultsComponent,
   ],
   templateUrl: './app.component.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './app.component.scss',
 })
 export class AppComponent implements OnDestroy {

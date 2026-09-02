@@ -2,7 +2,7 @@
 // request shape the endpoint turns out to accept, its timeout, and turning an
 // unusable reply into an error the retry loop understands.
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Subscription } from 'rxjs';
 import {
@@ -58,11 +58,11 @@ export interface ChatOptions {
 
 @Injectable({ providedIn: 'root' })
 export class ChatClient {
+  private http = inject(HttpClient);
+
   // Keyed by URL and model: which key an endpoint was reached with cannot
   // change what it accepts.
   private dialects = new Map<string, ProviderDialect>();
-
-  constructor(private http: HttpClient) {}
 
   /** This endpoint's dialect, created permissive on first use. Mutable and
    * shared: the main and review passes learn together when they are one
