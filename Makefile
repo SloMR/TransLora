@@ -4,8 +4,8 @@ SHELL := /bin/bash
 .SHELLFLAGS := -euo pipefail -c
 
 # Pinned here and fetched on demand by uv, so neither is a project dependency.
-RUFF ?= uvx ruff@0.14.5
-MYPY ?= uvx --with httpx --with pysubs2 --with pytest mypy@1.18.2
+RUFF ?= uvx ruff@0.16.5
+MYPY ?= uvx --with httpx --with pysubs2 --with pytest mypy@2.3.1
 # Prefix for python commands in cli/; pass PY= for your own venv (CI's pip leg does).
 PY   ?= uv run
 TAG   ?= local
