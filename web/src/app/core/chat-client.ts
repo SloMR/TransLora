@@ -11,6 +11,7 @@ import {
   MAX_DIALECT_CORRECTIONS,
   MAX_RETRY_DELAY_SECS,
   REASONING_BUDGET_MULTIPLIER,
+  REASONING_EFFORT_PREFERENCE,
   REQUEST_TEMPERATURE,
   TOKEN_PARAM_COMPLETION,
   TOKEN_PARAM_DEFAULT,
@@ -45,6 +46,9 @@ export class ReasoningBudgetError extends Error {
 export interface ProviderDialect {
   tokenParam: typeof TOKEN_PARAM_DEFAULT | typeof TOKEN_PARAM_COMPLETION;
   sendTemperature: boolean;
+  /** Set once an endpoint proves it reasons: the least effort it accepts, or
+   * null once it has refused every value we know. */
+  reasoningEffort: string | null;
 }
 
 /** The per-run settings one chat call needs. */
@@ -71,7 +75,7 @@ export class ChatClient {
     const key = `${sanitizeApiUrl(provider.apiUrl)} ${provider.model}`;
     let dialect = this.dialects.get(key);
     if (!dialect) {
-      dialect = { tokenParam: TOKEN_PARAM_DEFAULT, sendTemperature: true };
+      dialect = { tokenParam: TOKEN_PARAM_DEFAULT, sendTemperature: true, reasoningEffort: null };
       this.dialects.set(key, dialect);
     }
     return dialect;
@@ -135,7 +139,8 @@ export class ChatClient {
         // shape that was refused, so re-send it in the shape it learned.
         const now = effectiveDialect(learned, run);
         if (!changes.length && now.tokenParam === sent.tokenParam
-            && now.sendTemperature === sent.sendTemperature) {
+            && now.sendTemperature === sent.sendTemperature
+            && now.reasoningEffort === sent.reasoningEffort) {
           throw err;
         }
         corrections++;
@@ -236,10 +241,19 @@ export function extractServerMessage(err: unknown): string {
 // Providers word the two quirks differently, but each one names the parameter
 // it is rejecting. Learned from the server so no model list can go stale.
 const TOKEN_PARAM_RE = /max_tokens.*not supported|use 'max_completion_tokens'/i;
+// "Could not finish the message because max_tokens or model output limit was
+// reached" — a reasoning model asking for room it will only spend thinking.
+const OUTPUT_LIMIT_RE = /could not finish the message|model output limit was reached/i;
+// "Unsupported value: 'reasoning_effort' does not support 'minimal' with this
+// model. Supported values are: 'none', 'low', 'medium', 'high', and 'xhigh'."
+const REASONING_EFFORT_RE = /reasoning_effort.*(?:does not support|unsupported value)/i;
+const SUPPORTED_VALUES_RE = /supported values are:?\s*([^.]+)/i;
 const TEMPERATURE_RE = /temperature.*(?:does not support|unsupported value)/i;
 
 // The wording of the one-off warning, and of the run's stats line.
 export const TOKEN_PARAM_CHANGE = 'max_completion_tokens instead of max_tokens';
+export const REASONING_CHANGE = 'reasoning_effort';
+export const REASONING_DROP_CHANGE = 'no reasoning_effort';
 export const TEMPERATURE_CHANGE = 'the default temperature';
 
 /** The wire body, in the dialect this endpoint has proved it accepts. */
@@ -259,6 +273,7 @@ function requestBody(
     stream: false,
   };
   if (dialect.sendTemperature) body['temperature'] = REQUEST_TEMPERATURE;
+  if (dialect.reasoningEffort !== null) body['reasoning_effort'] = dialect.reasoningEffort;
   if (model) body['model'] = model;
   return body;
 }
@@ -282,7 +297,22 @@ function adjustDialect(dialect: ProviderDialect, text: string): string[] {
   const changes: string[] = [];
   if (dialect.tokenParam === TOKEN_PARAM_DEFAULT && TOKEN_PARAM_RE.test(text)) {
     dialect.tokenParam = TOKEN_PARAM_COMPLETION;
+    // An endpoint that wants max_completion_tokens is a reasoning endpoint.
+    dialect.reasoningEffort = REASONING_EFFORT_PREFERENCE[0]!;
     changes.push(TOKEN_PARAM_CHANGE);
+  }
+  if (dialect.reasoningEffort === null && OUTPUT_LIMIT_RE.test(text)) {
+    dialect.reasoningEffort = REASONING_EFFORT_PREFERENCE[0]!;
+    changes.push(`${REASONING_CHANGE} '${dialect.reasoningEffort}'`);
+  }
+  if (dialect.reasoningEffort !== null && REASONING_EFFORT_RE.test(text)) {
+    // The refusal names what the model takes; ask for the least of it.
+    const listed = SUPPORTED_VALUES_RE.exec(text);
+    const offered = listed ? Array.from(listed[1]!.matchAll(/'([^']+)'/g), (m) => m[1]!) : [];
+    let chosen = REASONING_EFFORT_PREFERENCE.find((v) => offered.includes(v)) ?? null;
+    if (chosen === dialect.reasoningEffort) chosen = null; // refused what it lists: stop asking
+    dialect.reasoningEffort = chosen;
+    changes.push(chosen ? `${REASONING_CHANGE} '${chosen}'` : REASONING_DROP_CHANGE);
   }
   if (dialect.sendTemperature && TEMPERATURE_RE.test(text)) {
     dialect.sendTemperature = false;
@@ -297,6 +327,7 @@ export function describeDialect(dialect: ProviderDialect): string {
   const parts: string[] = [];
   if (dialect.tokenParam !== TOKEN_PARAM_DEFAULT) parts.push(dialect.tokenParam);
   if (!dialect.sendTemperature) parts.push('no temperature');
+  if (dialect.reasoningEffort !== null) parts.push(`reasoning_effort ${dialect.reasoningEffort}`);
   return parts.join(', ');
 }
 

@@ -16,6 +16,7 @@ import pytest
 import core.chat_client as cc
 from core.config import (
     REASONING_CHANGE,
+    REASONING_DROP_CHANGE,
     TEMPERATURE_CHANGE,
     TOKEN_PARAM_CHANGE,
     Provider,
@@ -169,7 +170,7 @@ def test_the_token_param_400_switches_only_the_token_parameter() -> None:
     assert dialect.adjust_for(MAX_TOKENS_400) == [TOKEN_PARAM_CHANGE]
     assert dialect.token_param == TOKEN_PARAM_COMPLETION
     assert dialect.send_temperature is True
-    assert dialect.describe() == "max_completion_tokens, minimal reasoning"
+    assert dialect.describe() == "max_completion_tokens, reasoning_effort none"
 
 
 def test_the_temperature_400_only_stops_sending_temperature() -> None:
@@ -199,7 +200,7 @@ def test_one_body_naming_both_quirks_corrects_both() -> None:
     dialect = ProviderDialect()
     changes = dialect.adjust_for(MAX_TOKENS_400 + TEMPERATURE_400)
     assert changes == [TOKEN_PARAM_CHANGE, TEMPERATURE_CHANGE]
-    assert dialect.describe() == "max_completion_tokens, no temperature, minimal reasoning"
+    assert dialect.describe() == "max_completion_tokens, no temperature, reasoning_effort none"
 
 
 # === The request the transport actually sends ================================
@@ -283,7 +284,7 @@ def test_a_learned_dialect_is_reused_and_warned_about_once(cfg) -> None:
     assert len(bodies) == 1
     assert bodies[0]["max_completion_tokens"] == 300
     assert len(warnings) == 1
-    assert dialect_notes(cfg) == ["max_completion_tokens, minimal reasoning"]
+    assert dialect_notes(cfg) == ["max_completion_tokens, reasoning_effort none"]
 
 
 def test_a_correction_another_batch_already_made_is_still_re_sent(cfg) -> None:
@@ -381,30 +382,80 @@ def test_a_separate_review_endpoint_learns_on_its_own(cfg) -> None:
     assert cfg.dialect_for(cfg.review_provider).token_param == \
         TOKEN_PARAM_COMPLETION
     assert cfg.dialect_for(cfg.provider).token_param == TOKEN_PARAM_DEFAULT
-    assert dialect_notes(cfg) == ["review: max_completion_tokens, minimal reasoning"]
+    assert dialect_notes(cfg) == ["review: max_completion_tokens, reasoning_effort none"]
 
 
 def test_a_reasoning_endpoint_is_asked_to_stop_reasoning() -> None:
     """An endpoint demanding max_completion_tokens is reasoning-era: on gpt-5-mini
-    the default spent 448 of 476 tokens thinking, minimal spent none."""
+    the default spent 448 of 476 tokens thinking. Ask for none first; the
+    endpoint says what it takes if that is wrong."""
     dialect = ProviderDialect()
     dialect.adjust_for(MAX_TOKENS_400)
-    assert dialect.minimal_reasoning is True
+    assert dialect.reasoning_effort == "none"
 
     body = cc.request_body("sys", "user", Provider(api_url="u", api_key="k"), dialect, 300)
-    assert body["reasoning_effort"] == cc.REASONING_EFFORT_MINIMAL
+    assert body["reasoning_effort"] == "none"
     assert "max_completion_tokens" in body
 
 
-def test_an_output_limit_400_also_asks_for_minimal_reasoning() -> None:
+def test_an_output_limit_400_also_asks_for_no_reasoning() -> None:
     """"Could not finish the message because max_tokens ... was reached" is a
     reasoning model asking for room it will only spend thinking."""
     dialect = ProviderDialect(token_param=TOKEN_PARAM_COMPLETION)
     changes = dialect.adjust_for(
         '{"error":{"message":"Could not finish the message because max_tokens '
         'or model output limit was reached. Please try again with higher max_tokens."}}')
-    assert changes == [REASONING_CHANGE]
-    assert dialect.minimal_reasoning is True
+    assert changes == [f"{REASONING_CHANGE} 'none'"]
+    assert dialect.reasoning_effort == "none"
+
+
+# What gpt-5 answered when asked for 'none', and what gpt-5.6 answered when the
+# older tool asked it for 'minimal': each names the values it does take.
+GPT5_EFFORT_400 = (
+    '{"error":{"message":"Unsupported value: \'reasoning_effort\' does not support '
+    "'none' with this model. Supported values are: 'minimal', 'low', 'medium', "
+    "and 'high'.\"}}")
+GPT56_EFFORT_400 = (
+    '{"error":{"message":"Unsupported value: \'reasoning_effort\' does not support '
+    "'minimal' with this model. Supported values are: 'none', 'low', 'medium', "
+    "'high', and 'xhigh'.\"}}")
+
+
+def test_the_refusal_names_the_effort_the_model_takes() -> None:
+    """Older gpt-5 refuses 'none' and lists 'minimal': the next request asks
+    for the least of what was listed, and the run says so once."""
+    dialect = ProviderDialect(token_param=TOKEN_PARAM_COMPLETION, reasoning_effort="none")
+    assert dialect.adjust_for(GPT5_EFFORT_400) == [f"{REASONING_CHANGE} 'minimal'"]
+    assert dialect.reasoning_effort == "minimal"
+    assert dialect.describe() == "max_completion_tokens, reasoning_effort minimal"
+
+
+def test_a_model_that_lists_none_gets_none() -> None:
+    dialect = ProviderDialect(token_param=TOKEN_PARAM_COMPLETION, reasoning_effort="minimal")
+    assert dialect.adjust_for(GPT56_EFFORT_400) == [f"{REASONING_CHANGE} 'none'"]
+    assert dialect.reasoning_effort == "none"
+
+
+def test_a_refusal_that_lists_nothing_we_know_drops_the_parameter() -> None:
+    """A provider that rejects reasoning_effort without offering any value we
+    would ask for is left alone: the parameter stops being sent."""
+    dialect = ProviderDialect(token_param=TOKEN_PARAM_COMPLETION, reasoning_effort="none")
+    body = ('{"error":{"message":"Unsupported value: \'reasoning_effort\' does not '
+            'support \'none\'. Supported values are: \'medium\' and \'high\'."}}')
+    assert dialect.adjust_for(body) == [REASONING_DROP_CHANGE]
+    assert dialect.reasoning_effort is None
+    assert "reasoning_effort" not in cc.request_body(
+        "sys", "user", Provider(api_url="u", api_key="k"), dialect, 300)
+
+
+def test_a_refusal_of_the_very_value_it_lists_stops_the_asking() -> None:
+    """A body that contradicts itself must not loop: refuse 'none', list 'none',
+    and the dialect gives up on the parameter rather than re-sending it."""
+    dialect = ProviderDialect(token_param=TOKEN_PARAM_COMPLETION, reasoning_effort="none")
+    body = ('{"error":{"message":"\'reasoning_effort\' does not support \'none\'. '
+            'Supported values are: \'none\', \'low\'."}}')
+    assert dialect.adjust_for(body) == [REASONING_DROP_CHANGE]
+    assert dialect.reasoning_effort is None
 
 
 def test_a_plain_endpoint_is_never_asked_for_reasoning_effort() -> None:

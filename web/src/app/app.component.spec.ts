@@ -119,7 +119,7 @@ describe('AppComponent', () => {
         calls: { ...emptyCallCounts(), scan: 1, translate: 4 },
         blocks: 40,
         elapsedMs: 8000,
-        dialect: { tokenParam: 'max_completion_tokens', sendTemperature: false },
+        dialect: { tokenParam: 'max_completion_tokens', sendTemperature: false, reasoningEffort: 'none' },
       });
       call.resolve('translated');
       await flush();
@@ -127,7 +127,7 @@ describe('AppComponent', () => {
 
       const el: HTMLElement = fixture.nativeElement;
       expect(el.querySelector('.run-throughput')!.textContent)
-        .toContain('max_completion_tokens, no temperature');
+        .toContain('max_completion_tokens, no temperature, reasoning_effort none');
     });
   });
 

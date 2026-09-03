@@ -689,6 +689,82 @@ describe('TranslationService', () => {
       expect(seen.length).toBe(3);
     });
 
+    it('takes the effort a model says it supports when it refuses the first ask', async () => {
+      // gpt-5.6 refuses 'minimal' and lists none/low/...; older gpt-5 refuses
+      // 'none' and lists minimal/low/...: whichever way, the next request asks
+      // for the least the model named, and the run says so once.
+      const { doc } = fakeDoc(2);
+      const notices: string[] = [];
+      const run = translate(doc, {
+        batchSize: 2,
+        quality: { review: false, onNotice: (m) => notices.push(m) },
+      });
+
+      (await nextRequest('the scan')).flush(TOKEN_PARAM_400, BAD_REQUEST);
+      const asked = await nextRequest('the scan asking for none');
+      expect(rawBodyOf(asked)['reasoning_effort']).toBe('none');
+      asked.flush({ error: { message: "Unsupported value: 'reasoning_effort' does not "
+        + "support 'none' with this model. Supported values are: 'minimal', 'low', "
+        + "'medium', and 'high'." } }, BAD_REQUEST);
+
+      const settled = await nextRequest('the scan asking for minimal');
+      expect(rawBodyOf(settled)['reasoning_effort']).toBe('minimal');
+      settled.flush(chat('no glossary here'));
+      const batch = await nextRequest('the batch');
+      expect(rawBodyOf(batch)['reasoning_effort']).toBe('minimal');
+      batch.flush(chat(wireFor([1, 2])));
+      expect(await run).toBe('T1\nT2');
+      expect(notices).toContain(
+        "Provider requires reasoning_effort 'minimal'; adjusted for the rest of the run.",
+      );
+    });
+
+    it('asks a reasoning endpoint for no reasoning once it has shown itself', async () => {
+      const { doc } = fakeDoc(2);
+      const run = translate(doc, { batchSize: 2, quality: { review: false } });
+
+      const refused = await nextRequest('the scan');
+      expect(rawBodyOf(refused)['reasoning_effort']).toBeUndefined();
+      refused.flush(TOKEN_PARAM_400, BAD_REQUEST);
+
+      // Wanting max_completion_tokens is what a reasoning endpoint does; from
+      // here every call asks it not to spend the budget thinking.
+      const corrected = await nextRequest('the corrected scan');
+      expect(rawBodyOf(corrected)['reasoning_effort']).toBe('none');
+      corrected.flush(chat('no glossary here'));
+
+      const batch = await nextRequest('the batch');
+      expect(rawBodyOf(batch)['reasoning_effort']).toBe('none');
+      batch.flush(chat(wireFor([1, 2])));
+      expect(await run).toBe('T1\nT2');
+    });
+
+    it('learns minimal reasoning from an output-limit refusal too', async () => {
+      const { doc } = fakeDoc(2);
+      const notices: string[] = [];
+      const run = translate(doc, {
+        batchSize: 2,
+        quality: { review: false, onNotice: (m) => notices.push(m) },
+      });
+
+      const refused = await nextRequest('the scan');
+      refused.flush({ error: { message: 'Could not finish the message because '
+        + 'max_tokens or model output limit was reached. Please try again with '
+        + 'higher max_tokens.' } }, BAD_REQUEST);
+
+      const corrected = await nextRequest('the corrected scan');
+      expect(rawBodyOf(corrected)['reasoning_effort']).toBe('none');
+      // Nothing else changed: this endpoint never objected to max_tokens.
+      expect(rawBodyOf(corrected)['max_tokens']).toBeGreaterThan(0);
+      corrected.flush(chat('no glossary here'));
+      (await nextRequest('the batch')).flush(chat(wireFor([1, 2])));
+      await run;
+
+      expect(notices).toContain(
+        "Provider requires reasoning_effort 'none'; adjusted for the rest of the run.",
+      );
+    });
+
     it('drops the temperature after a 400 that names it', async () => {
       const { doc } = fakeDoc(2);
       const notices: string[] = [];
@@ -823,7 +899,7 @@ describe('TranslationService', () => {
       await run;
 
       expect(stats!.dialect).toEqual({
-        tokenParam: 'max_completion_tokens', sendTemperature: false,
+        tokenParam: 'max_completion_tokens', sendTemperature: false, reasoningEffort: 'none',
       });
     });
   });

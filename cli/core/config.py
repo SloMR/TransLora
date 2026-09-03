@@ -24,6 +24,7 @@ from .constants import (
     DEFAULT_SCAN_CHAR_BUDGET,
     DEFAULT_SEND_TEMPERATURE,
     DEFAULT_VERIFY_ADEQUACY,
+    REASONING_EFFORT_PREFERENCE,
     REQUEST_TIMEOUT_SECS,
     TOKEN_PARAM_COMPLETION,
     TOKEN_PARAM_DEFAULT,
@@ -66,7 +67,13 @@ TEMPERATURE_CHANGE = "the default temperature"
 # reached" — a reasoning model asking for room it will only spend thinking.
 _OUTPUT_LIMIT_RE = re.compile(
     r"could not finish the message|model output limit was reached", re.I)
-REASONING_CHANGE = "minimal reasoning effort"
+# "Unsupported value: 'reasoning_effort' does not support 'minimal' with this
+# model. Supported values are: 'none', 'low', 'medium', 'high', and 'xhigh'."
+_REASONING_EFFORT_RE = re.compile(
+    r"reasoning_effort.*(?:does not support|unsupported value)", re.I)
+_SUPPORTED_VALUES_RE = re.compile(r"supported values are:?\s*([^.]+)", re.I)
+REASONING_CHANGE = "reasoning_effort"
+REASONING_DROP_CHANGE = "no reasoning_effort"
 
 
 def dialect_warning(change: str) -> str:
@@ -83,8 +90,9 @@ class ProviderDialect:
     """
     token_param: str = TOKEN_PARAM_DEFAULT
     send_temperature: bool = DEFAULT_SEND_TEMPERATURE
-    # Set once an endpoint proves it reasons; asking for none is free.
-    minimal_reasoning: bool = False
+    # Set once an endpoint proves it reasons: the least effort it accepts, or
+    # None once it has refused every value we know.
+    reasoning_effort: str | None = None
 
     def adjust_for(self, body: str) -> list[str]:
         """Apply what a 400 body asks for; returns the changes actually made.
@@ -94,11 +102,21 @@ class ProviderDialect:
         changes: list[str] = []
         if self.token_param == TOKEN_PARAM_DEFAULT and _TOKEN_PARAM_RE.search(text):
             self.token_param = TOKEN_PARAM_COMPLETION
-            self.minimal_reasoning = True
+            # An endpoint that wants max_completion_tokens is a reasoning endpoint.
+            self.reasoning_effort = REASONING_EFFORT_PREFERENCE[0]
             changes.append(TOKEN_PARAM_CHANGE)
-        if not self.minimal_reasoning and _OUTPUT_LIMIT_RE.search(text):
-            self.minimal_reasoning = True
-            changes.append(REASONING_CHANGE)
+        if self.reasoning_effort is None and _OUTPUT_LIMIT_RE.search(text):
+            self.reasoning_effort = REASONING_EFFORT_PREFERENCE[0]
+            changes.append(f"{REASONING_CHANGE} '{self.reasoning_effort}'")
+        if self.reasoning_effort is not None and _REASONING_EFFORT_RE.search(text):
+            # The refusal names what the model takes; ask for the least of it.
+            listed = _SUPPORTED_VALUES_RE.search(text)
+            offered = re.findall(r"'([^']+)'", listed.group(1)) if listed else []
+            chosen = next((v for v in REASONING_EFFORT_PREFERENCE if v in offered), None)
+            if chosen == self.reasoning_effort:
+                chosen = None  # refused the very value it lists: stop asking
+            self.reasoning_effort = chosen
+            changes.append(f"{REASONING_CHANGE} '{chosen}'" if chosen else REASONING_DROP_CHANGE)
         if self.send_temperature and _TEMPERATURE_RE.search(text):
             self.send_temperature = False
             changes.append(TEMPERATURE_CHANGE)
@@ -112,8 +130,8 @@ class ProviderDialect:
             parts.append(self.token_param)
         if not self.send_temperature:
             parts.append("no temperature")
-        if self.minimal_reasoning:
-            parts.append("minimal reasoning")
+        if self.reasoning_effort is not None:
+            parts.append(f"reasoning_effort {self.reasoning_effort}")
         return ", ".join(parts)
 
 
@@ -158,7 +176,7 @@ class TranslationConfig:
     max_line_chars: int | None = None
     # Address the viewer formally/informally; "auto" follows the source.
     formality: str = DEFAULT_FORMALITY
-    # Free-text target variant, e.g. "Egyptian Arabic".
+    # Free-text target variant, e.g. "Saudi Arabic".
     dialect: str = DEFAULT_DIALECT
     encoding: str = DEFAULT_ENCODING
     request_timeout: float = REQUEST_TIMEOUT_SECS
