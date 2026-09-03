@@ -4,7 +4,7 @@
 //
 // Opt-in — it costs one call per sampled batch, about a fifth of the file.
 
-import { ADEQUACY_MIN_OVERLAP } from './constants';
+import { ADEQUACY_MIN_OVERLAP, ADEQUACY_MIN_SOURCE_WORDS } from './constants';
 import { BatchFlag, BatchOptions } from './batch-runner';
 import {
   ChatClient,
@@ -98,6 +98,7 @@ function compareBackTranslation(
   for (const src of batch) {
     const returned = byNumber.get(src.number);
     if (returned === undefined) continue;
+    if (contentWords(src.text).length < ADEQUACY_MIN_SOURCE_WORDS) continue;
     const overlap = tokenOverlap(src.text, returned);
     if (overlap >= ADEQUACY_MIN_OVERLAP) continue;
     flags.push({

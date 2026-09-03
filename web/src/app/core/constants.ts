@@ -62,6 +62,9 @@ export const VARIANT_DRIFT_FRACTION = 0.15;
 export const ADEQUACY_SAMPLE_FRACTION = 0.2;
 export const ADEQUACY_MIN_BATCHES = 2;
 export const ADEQUACY_MIN_OVERLAP = 0.35;
+// A back-translation of a three-word cue that swaps one synonym scores 33%;
+// cues shorter than this are not scored at all.
+export const ADEQUACY_MIN_SOURCE_WORDS = 5;
 
 // === Throughput reporting ===
 // Measured on a local 30B model: 6 serial requests in 20.7s. Only ever used

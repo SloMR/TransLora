@@ -14,7 +14,7 @@ import httpx
 from .batch_runner import BatchFlag, BatchResult, output_token_budget
 from .chat_client import call_chat_api, strip_markdown_fences
 from .config import TranslationConfig
-from .constants import ADEQUACY_MIN_OVERLAP
+from .constants import ADEQUACY_MIN_OVERLAP, ADEQUACY_MIN_SOURCE_WORDS
 from .prompt import (
     BACK_TRANSLATION_SYSTEM_PROMPT,
     build_back_translation_user_message,
@@ -43,6 +43,8 @@ def _compare_back_translation(
     for src in batch:
         returned = by_number.get(src.number)
         if returned is None:
+            continue
+        if len(content_words(src.text)) < ADEQUACY_MIN_SOURCE_WORDS:
             continue
         overlap = token_overlap(src.text, returned)
         if overlap >= ADEQUACY_MIN_OVERLAP:

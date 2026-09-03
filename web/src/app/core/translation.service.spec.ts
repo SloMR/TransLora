@@ -1355,10 +1355,21 @@ describe('TranslationService', () => {
 
   describe('the adequacy spot check', () => {
     /** Two batches, both sampled; `back` answers each back-translation. */
+    // Long enough to be scored (cues under five content words are not) and
+    // unlike each other, so the consistency check has no motif to weigh in on.
+    const SOURCES = [
+      'the harbour master signs the log book at eleven tonight',
+      'a stranger left three parcels on the kitchen table',
+      'nobody told the driver where the road actually ends',
+      'her brother keeps the garden keys under the loose brick',
+    ];
+
     async function runAdequacy(
-      back: string, quality: QualityOptions = {},
+      back: string | ((n: number) => string), quality: QualityOptions = {},
     ): Promise<{ notices: string[]; requests: TestRequest[] }> {
       const { doc } = fakeDoc(4);
+      doc.blocks.forEach((b, i) => { b.text = SOURCES[i]; });
+      const backFor = typeof back === 'string' ? () => back : back;
       const notices: string[] = [];
       const run = translate(doc, {
         batchSize: 2,
@@ -1375,11 +1386,28 @@ describe('TranslationService', () => {
       for (let i = 0; i < 2; i++) {
         const req = await nextRequest(`back-translation ${i + 1}`);
         requests.push(req);
-        req.flush(chat(`${i * 2 + 1}\n${back}\n\n${i * 2 + 2}\n${back}`));
+        const [a, b] = [i * 2 + 1, i * 2 + 2];
+        req.flush(chat(`${a}\n${backFor(a)}\n\n${b}\n${backFor(b)}`));
       }
       await run;
       return { notices, requests };
     }
+
+    it('leaves a cue too short to score fairly alone', async () => {
+      const { doc } = fakeDoc(2);
+      const notices: string[] = [];
+      const run = translate(doc, {
+        batchSize: 2,
+        quality: { review: false, fixFlagged: false, verifyAdequacy: true,
+          onNotice: (m) => notices.push(m) },
+      });
+      await flushScan();
+      (await nextRequest('the batch')).flush(chat(wireFor([1, 2])));
+      (await nextRequest('back-translation')).flush(chat('1\nNothing like it\n\n2\nNothing like it'));
+      await run;
+      // "Line 1" is two words; one changed word would already read as 50% lost.
+      expect(notices).toEqual([]);
+    });
 
     it('asks for the target text back in the source language', async () => {
       const { requests } = await runAdequacy('Line 1');
@@ -1397,7 +1425,7 @@ describe('TranslationService', () => {
     });
 
     it('stays quiet when the wording comes back', async () => {
-      const { notices } = await runAdequacy('Line 1');
+      const { notices } = await runAdequacy((n) => SOURCES[n - 1]);
       expect(notices).toEqual([]);
     });
 
@@ -1415,6 +1443,7 @@ describe('TranslationService', () => {
 
     it('hands what it flagged to the repair pass', async () => {
       const { doc } = fakeDoc(2);
+      doc.blocks.forEach((b, i) => { b.text = SOURCES[i]; });
       const run = translate(doc, {
         batchSize: 2,
         quality: { review: false, verifyAdequacy: true },

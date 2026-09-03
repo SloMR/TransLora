@@ -286,9 +286,43 @@ def _drops_tags(fix: bool = True):
     return reply
 
 
-def _run_tagged(tmp_path, cfg, monkeypatch, reply):
+# Six cues long enough for the adequacy check to score (it skips anything
+# under five content words) and unlike each other, so the consistency check
+# has no repeated phrase to weigh in on.
+LONG_SRT = "".join(
+    f"{n}\n00:00:{n:02d},000 --> 00:00:{n + 1:02d},000\n{text}\n\n"
+    for n, text in enumerate([
+        "the harbour master signs the log book at eleven tonight",
+        "a stranger left three parcels on the kitchen table",
+        "nobody told the driver where the road actually ends",
+        "her brother keeps the garden keys under the loose brick",
+        "the choir rehearses in the old chapel every second thursday",
+        "somebody painted the lighthouse door a different green",
+    ], start=1)
+)
+
+
+def _fixes_only_alone():
+    """A model that keeps dropping the italics however the batch is re-issued,
+    and puts them back only when a cue is sent on its own."""
+    def reply(system_prompt: str, user_message: str) -> str:
+        if system_prompt == CONTEXT_SYSTEM_PROMPT:
+            return ""
+        blocks = parse_lite(user_message)
+        alone = user_message.startswith(FIX_FLAGGED_RULE) and len(blocks) == 1
+        return serialize_lite([
+            SubtitleBlock(
+                b.number, "",
+                f"سطر {{\\i1}}{b.number}{{\\i0}} هنا" if alone
+                else f"سطر {b.number} هنا")
+            for b in blocks
+        ])
+    return reply
+
+
+def _run_tagged(tmp_path, cfg, monkeypatch, reply, srt: str = TAGGED_SRT):
     src = tmp_path / "a.srt"
-    src.write_text(TAGGED_SRT, encoding="utf-8")
+    src.write_text(srt, encoding="utf-8")
     output = tmp_path / "a.ar.srt"
     calls = _install_recording_chat(monkeypatch, reply)
     run_async(translate_file_async(src, output, cfg))
@@ -398,7 +432,7 @@ def test_verify_adequacy_feeds_the_repair_pass(tmp_path, cfg, monkeypatch) -> No
             for b in parse_lite(user_message)
         ])
 
-    _, calls = _run_tagged(tmp_path, cfg, monkeypatch, reply)
+    _, calls = _run_tagged(tmp_path, cfg, monkeypatch, reply, srt=LONG_SRT)
 
     assert cfg.calls.back_translation == 2
     # Both batches came back inadequate, and both fit under the cap.
