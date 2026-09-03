@@ -15,6 +15,7 @@ import {
   ATTRIBUTION_SYSTEM_PROMPT,
   BACK_TRANSLATION_SYSTEM_PROMPT,
   CONTEXT_SYSTEM_PROMPT,
+  FIX_FLAGGED_RULE,
   REVIEW_SYSTEM_PROMPT,
   SYSTEM_PROMPT,
 } from './translation-prompt';
@@ -1251,6 +1252,43 @@ describe('TranslationService', () => {
       expect(texts).toEqual(['س ص ع']);
     });
 
+    it('gives a cue the batch retry could not fix one more chance on its own', async () => {
+      // The real run kept ten of eighteen retried batches unchanged: inside a
+      // batch the model let the named correction slide. Alone, it follows it.
+      const { doc, assembled } = fakeDoc(2);
+      doc.blocks[0]!.text = TAGGED;
+      doc.blocks[1]!.text = TAGGED;
+      const notices: string[] = [];
+      const run = translate(doc, {
+        batchSize: 2,
+        targetLang: 'Arabic',
+        quality: { review: false, contextOverlap: 0, onNotice: (m) => notices.push(m) },
+      });
+      await flushScan();
+      (await nextRequest('the batch')).flush(chat('1\nس ص ع\n\n2\nس ص ع'));
+      // The batch retry drops the tags again, so it is not kept.
+      (await nextRequest('the batch retry')).flush(chat('1\nس ص ع\n\n2\nس ص ع'));
+      for (let i = 0; i < 2; i++) {
+        const alone = await nextRequest(`cue ${i + 1} alone`);
+        const message = userMessageOf(alone);
+        const number = Number(/(?:^|\n)(\d+)\n/.exec(message.split(FIX_FLAGGED_RULE)[1] ?? message)![1]);
+        expect(message).toContain(
+          `- block ${number}: the formatting tags <i>...</i> were dropped`);
+        alone.flush(chat(`${number}\n<i>س</i>`));
+      }
+      await run;
+      expect(assembled().map((b) => b.text)).toEqual(['<i>س</i>', '<i>س</i>']);
+      expect(notices).toContain('Repaired 2/2 flagged line(s) on their own');
+    });
+
+    it('does not offer a one-cue batch the same retry twice', async () => {
+      // With one cue per batch the batch retry already was the cue alone.
+      const before = seen.length;
+      await runWithRetry('س ص ع');
+      // Scan, the batch, its one retry, and nothing more.
+      expect(seen.length - before).toBe(3);
+    });
+
     it('makes no extra call at all when the repair is switched off', async () => {
       const before = seen.length;
       const { texts } = await runWithRetry(null, { fixFlagged: false });
@@ -1310,11 +1348,23 @@ describe('TranslationService', () => {
       for (let n = 1; n <= 2; n++) {
         (await nextRequest(`retry ${n}`)).flush(chat(`${n}\n<i>س</i>`));
       }
+      // The four the cap left are then offered the cue pass, under its own
+      // cap of max(2, 5% of 6) = 2: cues 3 and 4, earliest first.
+      for (let n = 3; n <= 4; n++) {
+        const alone = await nextRequest(`cue ${n} alone`);
+        expect(userMessageOf(alone)).toContain(`\n${n}\nA <i>b</i> c`);
+        alone.flush(chat(`${n}\n<i>س</i>`));
+      }
       await run;
 
       expect(notices).toContain(
         '6 flagged batch(es) across 1 cause(s); repairing 2 (cap 2), leaving 4',
       );
+      expect(notices).toContain(
+        '4 flagged line(s) left after the batch retries; re-translating 2 on '
+        + 'their own (cap 2), leaving 2',
+      );
+      expect(notices).toContain('Repaired 2/2 flagged line(s) on their own');
     }, 20_000);
 
     it('spends the wider ceiling on a failure that repeats, rarest cause first', async () => {
@@ -1344,9 +1394,18 @@ describe('TranslationService', () => {
         repaired.push(number);
         retry.flush(chat(`${number}\nس`));
       }
+      // None of those retries helped, so the cue pass takes the earliest two
+      // cues whose one-cue batch was not already retried: 3 and 4.
+      for (let n = 3; n <= 4; n++) {
+        (await nextRequest(`cue ${n} alone`)).flush(chat(`${n}\nس`));
+      }
       await run;
 
       expect(repaired).toEqual(['1', '2', '12']);
+      expect(notices).toContain(
+        '9 flagged line(s) left after the batch retries; re-translating 2 on '
+        + 'their own (cap 2), leaving 7',
+      );
       expect(notices).toContain(
         '12 flagged batch(es) across 2 cause(s); repairing 3 (cap 3), leaving 9',
       );
@@ -1603,6 +1662,14 @@ describe('TranslationService', () => {
           const number = /Translate from English to Arabic:\n\n(\d+)\n/
             .exec(userMessageOf(repair))![1]!;
           repair.flush(chat(`${number}\nنوبة الليل`));
+        }
+        // The two batches the cap left keep their phrase flag, so their cues
+        // are re-issued alone, under the cue pass's own cap of two.
+        for (let i = 0; i < 2; i++) {
+          const alone = await nextRequest(`cue ${i + 3} alone`);
+          const number = /Translate from English to Arabic:\n\n(\d+)\n/
+            .exec(userMessageOf(alone))![1]!;
+          alone.flush(chat(`${number}\nنوبة الليل`));
         }
       }
       await run;
