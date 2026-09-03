@@ -914,7 +914,7 @@ describe('findInconsistentPhrases', () => {
 
   it('says how many ways it was rendered and across how many cues', () => {
     expect(phraseSplitMessage(run('night shift', FOUR_WAYS)[0]!)).toBe(
-      "'night shift' is rendered 4 different ways across 4 cues; "
+      "'night shift' is rendered 4 different ways across 4 lines; "
       + 'no wording is shared by all of them',
     );
   });

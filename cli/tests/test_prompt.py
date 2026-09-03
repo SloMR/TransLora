@@ -326,7 +326,7 @@ def test_the_back_translation_message_ends_with_the_wire() -> None:
 def test_the_register_rule_is_the_original_one_line_form() -> None:
     """A stronger "never soften" rule was measured on a graded 372-cue benchmark
     and made things worse: softening rose 13 -> 18 and fluency fell 6.4 -> 5.9,
-    with zero restorations across the ten crude cues it targeted."""
+    with zero restorations across the ten crude lines it targeted."""
     assert ("- Translate faithfully: profanity, slurs, slang — match the "
             "original register.") in SYSTEM_PROMPT
     assert "full strength" not in SYSTEM_PROMPT

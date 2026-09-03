@@ -310,7 +310,7 @@ function finalizeBatch(
     flags.push({
       block: shift.first,
       message: shiftMessage(shift),
-      problem: `block ${shift.first}: text from the next cue appears here `
+      problem: `block ${shift.first}: text from the next line appears here `
         + `('${shift.run}')`,
       cause: 'shift',
     });
@@ -342,7 +342,7 @@ function dashFlag(src: SubtitleBlock, outputText: string): BatchFlag {
   return {
     block: src.number,
     message: `Block ${src.number}: speaker dashes changed (${source} -> ${output})`,
-    problem: `block ${src.number}: the source cue opens ${source} line(s) with a `
+    problem: `block ${src.number}: the source opens ${source} line(s) with a `
       + `dialogue dash and the translation opens ${output}; keep one line per speaker`,
     cause: 'dashes',
   };

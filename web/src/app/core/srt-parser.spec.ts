@@ -553,7 +553,7 @@ describe('detectCrossCueShift', () => {
       '{\\i1}متى يتجاوز التعليق أو الفعل الخط.{\\i0}', '{\\i1}الخط.{\\i0}',
     );
     expect(detectCrossCueShift(source, output)).toEqual([
-      "Blocks 236-237: 'الخط' appears in both cues - text may have shifted "
+      "Blocks 236-237: 'الخط' appears in both lines - text may have shifted "
       + 'between them',
     ]);
   });
@@ -620,7 +620,7 @@ describe('detectCrossCueShift', () => {
       'يرغب في ذلك بالانضمام',
     );
     expect(detectCrossCueShift(source, output)).toEqual([
-      "Blocks 236-237: 'بالانضمام' appears in both cues - text may have "
+      "Blocks 236-237: 'بالانضمام' appears in both lines - text may have "
       + 'shifted between them',
     ]);
   });
@@ -686,7 +686,7 @@ describe('detectCrossCueShift over the whole synthetic run', () => {
       cues.map((c) => block(c.n, c.en)),
       cues.map((c) => block(c.n, c.target)),
     )).toContain(
-      "Blocks 5-6: 'المنحدر' appears in both cues - text may have "
+      "Blocks 5-6: 'المنحدر' appears in both lines - text may have "
       + 'shifted between them',
     );
   });
@@ -865,7 +865,7 @@ describe('detectVariantDrift', () => {
   it('reads as a sentence naming the count and the way out', () => {
     expect(variantDriftMessage({ variant: 'Egyptian', cues: 211, total: 372 }))
       .toBe('Output looks like Egyptian rather than the standard written form '
-        + '(211 of 372 cues). Pass --dialect to ask for it deliberately, or rerun.');
+        + '(211 of 372 lines). Pass --dialect to ask for it deliberately, or rerun.');
   });
 });
 

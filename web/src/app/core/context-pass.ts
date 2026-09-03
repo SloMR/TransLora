@@ -419,7 +419,7 @@ export interface PhraseSplit {
 
 export function phraseSplitMessage(split: PhraseSplit): string {
   return `'${split.phrase}' is rendered ${split.distinctRenderings} different `
-    + `ways across ${split.occurrences} cues; no wording is shared by all of them`;
+    + `ways across ${split.occurrences} lines; no wording is shared by all of them`;
 }
 
 /** Phrases the file repeats whose finished cues share no wording at all — the

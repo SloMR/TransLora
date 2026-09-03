@@ -512,7 +512,7 @@ def test_empty_text_is_handled() -> None:
 
 # === detect_cross_cue_shift ==================================================
 
-# Real block 236/237: the model let 236 finish 237's sentence, so both cues
+# Real block 236/237: the model let 236 finish 237's sentence, so both lines
 # ended up carrying "الخط" while the English pair shares no word at all.
 BLED_FIRST = "متى يتجاوز التعليق أو الفعل الخط"
 BLED_SECOND = "الخط."
@@ -530,13 +530,13 @@ def test_content_shared_by_two_output_cues_but_not_their_sources_is_reported() -
         BLED_FIRST, BLED_SECOND,
     )
     assert detect_cross_cue_shift(source, output) == [
-        "Blocks 236-237: 'الخط' appears in both cues - "
+        "Blocks 236-237: 'الخط' appears in both lines - "
         "text may have shifted between them"
     ]
 
 
 def test_a_repetition_the_source_makes_too_is_left_alone() -> None:
-    # Both English cues say "the gate", so both Arabic cues saying "الخط" is
+    # Both English lines say "the gate", so both Arabic lines saying "الخط" is
     # the translation being faithful, not text moving.
     source, output = _pair(
         "the gate was closed,", "the gate is right here.",
@@ -865,7 +865,7 @@ def test_an_ordinary_translation_reports_nothing() -> None:
 
 
 def test_a_leak_is_keyed_by_the_script_that_leaked() -> None:
-    """The cause groups two cues leaking the same script into one problem,
+    """The cause groups two lines leaking the same script into one problem,
     however differently their messages read."""
     leaks = find_script_leaks("From Beijing.", "من 北京.", "arabic")
     assert [leak.script for leak in leaks] == ["han"]
@@ -892,7 +892,7 @@ def test_the_warning_names_the_variant_the_share_and_the_way_out() -> None:
     drift = detect_variant_drift(_blocks(*EGYPTIAN), "arabic")
     assert variant_drift_message(drift) == (
         "Output looks like Egyptian rather than the standard written form "
-        "(4 of 4 cues). Pass --dialect to ask for it deliberately, or rerun.")
+        "(4 of 4 lines). Pass --dialect to ask for it deliberately, or rerun.")
 
 
 def test_a_standard_file_is_never_reported() -> None:
@@ -1008,7 +1008,7 @@ MIXED_TOTAL = 22
 
 
 def _in_a_file_of(cues: tuple[str, ...]) -> list[SubtitleBlock]:
-    """`cues` padded with standard ones to MIXED_TOTAL, so every count below
+    """`lines` padded with standard ones to MIXED_TOTAL, so every count below
     is measured against the same 15% bar."""
     return _blocks(*(cues + (STANDARD * 6)[:MIXED_TOTAL - len(cues)]))
 
@@ -1028,7 +1028,7 @@ def test_the_variant_buckets_are_scored_as_one_union() -> None:
 
 
 def test_a_cue_carrying_two_buckets_is_counted_once() -> None:
-    """The union is cues, not marker hits: each of these is both Egyptian and
-    pan-dialectal, and three such cues are three cues of drift, not six."""
+    """The union is lines, not marker hits: each of these is both Egyptian and
+    pan-dialectal, and three such lines are three lines of drift, not six."""
     assert detect_variant_drift(
         _in_a_file_of(("مش وين", "ده ليش", "كده كمان")), "arabic") is None

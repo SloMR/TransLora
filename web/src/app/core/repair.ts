@@ -403,7 +403,7 @@ export function findCrossCueShifts(
 
 export function shiftMessage(shift: CueShift): string {
   return `Blocks ${shift.first}-${shift.second}: '${shift.run}' appears in `
-    + 'both cues - text may have shifted between them';
+    + 'both lines - text may have shifted between them';
 }
 
 /** Strip a cue's vocalisation where the file as a whole carries none — the
@@ -464,7 +464,7 @@ export function detectVariantDrift(
 
 export function variantDriftMessage(drift: VariantDrift): string {
   return `Output looks like ${drift.variant} rather than the standard written `
-    + `form (${drift.cues} of ${drift.total} cues). Pass --dialect to ask for `
+    + `form (${drift.cues} of ${drift.total} lines). Pass --dialect to ask for `
     + 'it deliberately, or rerun.';
 }
 

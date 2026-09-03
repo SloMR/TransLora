@@ -275,12 +275,12 @@ def build_parser(version: str) -> argparse.ArgumentParser:
     p.add_argument("--no-fix-flagged", dest="fix_flagged",
                    action="store_false", default=DEFAULT_FIX_FLAGGED,
                    help="Disable the focused retry of batches flagged for "
-                        "dropped tags, glossary drift or cross-cue bleeding "
+                        "dropped tags, glossary drift or cross-line bleeding "
                         "(capped at 5%% of the file's batches, so at most a "
                         "few extra calls).")
     p.add_argument("--verify-adequacy", dest="verify_adequacy",
                    action="store_true", default=DEFAULT_VERIFY_ADEQUACY,
-                   help="Back-translate a fifth of the batches and flag cues "
+                   help="Back-translate a fifth of the batches and flag lines "
                         "that lost meaning, feeding them to the flagged-batch "
                         "retry. Needs --source. Adds ~20%% more calls.")
     p.add_argument("--full-attribution", dest="full_attribution",
@@ -290,7 +290,7 @@ def build_parser(version: str) -> argparse.ArgumentParser:
                         "extra scene.")
     p.add_argument("--no-reflow", dest="reflow", action="store_false",
                    default=DEFAULT_REFLOW,
-                   help="Don't re-wrap translated cues to the source's line "
+                   help="Don't re-wrap translated lines to the source's line "
                         "count and the script's line length (deterministic, "
                         "no extra API calls).")
     return p

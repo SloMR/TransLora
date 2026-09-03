@@ -380,7 +380,7 @@ def test_the_dash_flag_tells_the_retry_what_to_put_back(cfg) -> None:
         [SubtitleBlock(1, "ts1", "- A?\n- B.")],
         [SubtitleBlock(1, "", "س؟ ص.")], cfg, False)
     assert [f.problem for f in result.flags] == [
-        "block 1: the source cue opens 2 line(s) with a dialogue dash and "
+        "block 1: the source opens 2 line(s) with a dialogue dash and "
         "the translation opens 0; keep one line per speaker"]
 
 
@@ -422,7 +422,7 @@ def test_a_suspected_cross_cue_shift_is_reported_once(cfg) -> None:
         ("gates must close early.", "الخط."),
     ])
     assert warnings == [
-        "Blocks 1-2: 'الخط' appears in both cues - "
+        "Blocks 1-2: 'الخط' appears in both lines - "
         "text may have shifted between them"
     ]
 
@@ -557,7 +557,7 @@ def test_bleeding_and_drift_reach_the_retry_as_separate_problems(cfg) -> None:
     assert [f.problem for f in result.flags] == [
         "block 1: the glossary term 'the channel' was not rendered as "
         "'الخط الأحمر'",
-        "block 1: text from the next cue appears here ('الخط')",
+        "block 1: text from the next line appears here ('الخط')",
     ]
     # Every flag names the block a person would open to check it.
     assert {f.block for f in result.flags} == {1}
