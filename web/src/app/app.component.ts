@@ -14,8 +14,10 @@ import { describeCalls, projectRun } from './core/run-stats';
 import { TranslationRunnerService } from './core/translation-runner.service';
 import { FileIntakeComponent } from './file-intake/file-intake.component';
 import { ProviderFormComponent } from './provider-form/provider-form.component';
+import { QUALITY_PRESETS, QualityPresetKey } from './run-presets';
 import { RunSettings } from './run-settings';
 import { RunResultsComponent } from './run-results/run-results.component';
+import { ThemeController } from './theme';
 
 // The page shell: theme, layout, and the wiring between the intake form, the
 // settings forms and the run queue.
@@ -45,18 +47,9 @@ export class AppComponent implements OnDestroy {
   // Output names already saved; drives the unsaved-work warning.
   private downloaded = signal<ReadonlySet<string>>(new Set<string>());
 
-  private systemPrefersDark = signal(false);
-  private themeMedia: MediaQueryList | null = null;
-
-  theme = computed<'light' | 'dark'>(() => {
-    const pref = this.settings.themePreference();
-    if (pref !== 'system') return pref;
-    return this.systemPrefersDark() ? 'dark' : 'light';
-  });
-
-  themeToggleLabel = computed(() =>
-    this.theme() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode',
-  );
+  private themes = new ThemeController(this.settings.themePreference);
+  theme = this.themes.theme;
+  themeToggleLabel = this.themes.toggleLabel;
 
   fileCountLabel = computed(() => {
     const n = this.files().length;
@@ -77,13 +70,44 @@ export class AppComponent implements OnDestroy {
     verifyAdequacy: this.settings.verifyAdequacy(),
   }));
 
-  projectionSummary = computed(() => {
+  // The same projection as three numbers, for the card the button sits in.
+  estimate = computed(() => {
     const projected = this.projection();
-    if (projected.total === 0) return '';
+    if (projected.total === 0) return null;
     const lanes = this.settings.concurrency() * this.settings.parallelFiles();
-    return `~${projected.total} LLM calls (${describeCalls(projected.calls)}) `
-      + `· about ${this.runner.tracker.formatMs(projected.estimateMs)} at `
-      + `${lanes} parallel request${lanes === 1 ? '' : 's'}.`;
+    return {
+      calls: String(projected.total),
+      callsDetail: describeCalls(projected.calls),
+      time: this.runner.tracker.formatMs(projected.estimateMs),
+      lanes: String(lanes),
+    };
+  });
+
+  // The stage shows one thing at a time, and this is which.
+  phase = computed<'empty' | 'queued' | 'running' | 'done'>(() => {
+    if (this.runner.isTranslating()) return 'running';
+    if (this.runner.isDone()) return 'done';
+    return this.files().length === 0 ? 'empty' : 'queued';
+  });
+
+  qualityLabel = computed(() => {
+    const key = this.settings.qualityPreset();
+    return key === 'custom' ? 'Custom' : QUALITY_PRESETS[key].label;
+  });
+
+  statusLabel = computed(() => {
+    switch (this.phase()) {
+      case 'running':
+        return `Translating ${this.runner.overallProgressPercent()}%`;
+      case 'done': {
+        const failed = this.runner.failedFiles().length;
+        return failed ? `Done, ${failed} failed` : 'Done';
+      }
+      case 'queued':
+        return `${this.fileCountLabel()} ready`;
+      default:
+        return 'Ready';
+    }
   });
 
   projectionCaveat = computed(() => {
@@ -91,7 +115,8 @@ export class AppComponent implements OnDestroy {
     if (projected.total === 0) return '';
     return `Estimate only, at ${projected.secsPerCall}s per call. Review and `
       + 'repair are upper bounds, and speaker-attribution calls are not '
-      + 'counted — how many scenes need one is known only after the prepass.';
+      + 'counted — how many scenes need one is known only after the prepass. '
+      + 'Nor are the few lines re-translated on their own after the repair.';
   });
 
   canTranslate = computed(() => {
@@ -141,10 +166,6 @@ export class AppComponent implements OnDestroy {
       this.runner.doneFiles().some((f) => !!f.content && !this.downloaded().has(f.outputName)),
   );
 
-  private onSystemThemeChange = (event: MediaQueryListEvent) => {
-    this.systemPrefersDark.set(event.matches);
-  };
-
   private onBeforeUnload = (event: BeforeUnloadEvent) => {
     if (!this.hasUnsavedWork()) return;
     event.preventDefault();
@@ -153,8 +174,6 @@ export class AppComponent implements OnDestroy {
   };
 
   constructor() {
-    this.initTheme();
-
     if (typeof window !== 'undefined') {
       window.addEventListener('beforeunload', this.onBeforeUnload);
     }
@@ -194,7 +213,7 @@ export class AppComponent implements OnDestroy {
       }),
     });
 
-    effect(() => this.applyTheme());
+    effect(() => this.themes.apply());
     effect(() => this.settings.persist());
   }
 
@@ -203,34 +222,20 @@ export class AppComponent implements OnDestroy {
     if (typeof window !== 'undefined') {
       window.removeEventListener('beforeunload', this.onBeforeUnload);
     }
-    this.themeMedia?.removeEventListener('change', this.onSystemThemeChange);
-  }
-
-  private initTheme() {
-    if (typeof window !== 'undefined') {
-      this.themeMedia = window.matchMedia?.('(prefers-color-scheme: dark)') ?? null;
-      if (this.themeMedia) {
-        this.systemPrefersDark.set(this.themeMedia.matches);
-        this.themeMedia.addEventListener('change', this.onSystemThemeChange);
-      }
-    }
-
-    this.applyTheme();
+    this.themes.destroy();
   }
 
   toggleTheme() {
-    this.settings.themePreference.set(this.theme() === 'dark' ? 'light' : 'dark');
-  }
-
-  private applyTheme() {
-    if (typeof document !== 'undefined') {
-      document.documentElement.setAttribute('data-theme', this.theme());
-    }
+    this.themes.toggle();
   }
 
   onProviderTypeChange(type: string) {
     this.settings.onProviderTypeChange(type);
     this.showAdvanced.set(false);
+  }
+
+  onQualityPreset(key: QualityPresetKey) {
+    this.settings.applyQualityPreset(key);
   }
 
   onFilesAdded(incoming: UploadedFile[]) {

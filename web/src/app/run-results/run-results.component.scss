@@ -8,7 +8,7 @@
 @include controls.actions;
 
 .results-banner {
-  margin-bottom: 0.85rem;
+  margin-bottom: 0.75rem;
 }
 
 .results-summary {
@@ -18,17 +18,30 @@
 .summary-header {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.5rem;
 }
 
 .summary-title {
-  font-size: 1rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
+  font-size: 0.98rem;
+  font-weight: 700;
+}
+
+.summary-header-failed .summary-title {
+  color: var(--danger);
+}
+
+.failed-msg {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .summary-meta {
-  margin: 0.38rem 0 0;
+  margin: 0.25rem 0 0;
+}
+
+.summary-flagged {
+  font-weight: 700;
+  color: var(--flag);
 }
 
 .progress-bar-wrap {
@@ -38,112 +51,165 @@
   align-items: center;
 }
 
-.progress-track,
-.row-bar {
+.progress-track {
   position: relative;
   overflow: hidden;
-  height: 0.64rem;
-  border-radius: 999px;
-  background: var(--surface-muted);
+  height: 0.45rem;
+  border-radius: 2px;
+  background: var(--panel-sunken);
 }
 
-.progress-fill,
-.row-bar-fill {
+.progress-fill {
   height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--color-primary), var(--color-accent));
+  background: var(--select);
+  transition: width 0.3s ease;
 }
 
+.progress-pct {
+  font-family: var(--font-code);
+  font-variant-numeric: tabular-nums;
+}
+
+// Elapsed, ETA and the like as one row of figures, ruled like a receipt.
 .progress-stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.7rem;
-  margin-top: 0.85rem;
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
 }
 
 .stat {
   display: grid;
-  gap: 0.15rem;
-  padding: 0.72rem 0.8rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 16px;
-  background: var(--surface-panel);
+  gap: 0.05rem;
+  padding: 0.55rem 0.75rem;
+  border-left: 1px solid var(--line);
+
+  &:first-child {
+    border-left: 0;
+    padding-left: 0;
+  }
 }
 
 .stat-value {
-  font-size: 0.92rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
 }
 
 .run-throughput {
-  margin: 0.6rem 0 0;
+  margin: 0.55rem 0 0;
 }
 
 .results-section {
-  margin-top: 0.95rem;
+  margin-top: 0.9rem;
 }
 
 .results-section > .section-label,
 .results-section > .section-header {
-  margin-bottom: 0.6rem;
-}
-
-.results-section > .progress-row + .progress-row {
-  margin-top: 0.55rem;
+  margin-bottom: 0.5rem;
 }
 
 .scroll-list {
   max-height: 320px;
   overflow: auto;
-
-  // Focusable so the overflowed rows are reachable without a mouse.
-  &:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 3px;
-  }
-}
-
-.progress-row {
-  grid-template-columns: auto minmax(0, 1.35fr) auto minmax(110px, 0.9fr);
-}
-
-.result-item {
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
 }
 
 .failed-item {
   grid-template-columns: auto minmax(0, 1fr);
 }
 
-.row-dot,
 .summary-dot {
-  width: 0.6rem;
-  height: 0.6rem;
-  border-radius: 999px;
-  background: var(--color-primary);
-  box-shadow: 0 0 0 5px var(--color-primary-soft);
-}
-
-.result-check,
-.failed-icon {
-  color: var(--color-success);
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--select);
 }
 
 .failed-icon {
-  color: var(--color-danger);
-}
-
-.btn-retry,
-.btn-download-all {
-  color: var(--color-primary-strong);
+  color: var(--danger);
 }
 
 .btn-cancel {
-  color: var(--color-danger-strong);
-  border-color: var(--border-danger);
-  background: var(--color-danger-soft);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+// What the run said about itself, folded until asked for.
+// ---- What the repair fixed, and what it could not -----------------------------
+.repairs {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--panel-raised);
+  font-size: 0.82rem;
+}
+
+.repairs-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0;
+  font-weight: 700;
+  color: var(--ink);
+
+  svg {
+    flex: none;
+    margin-top: 0.15rem;
+  }
+}
+
+.repairs-fixed svg {
+  color: var(--ok);
+}
+
+.repairs-left svg {
+  color: var(--flag);
+}
+
+.repairs-clean {
+  color: var(--ink-mute);
+  font-weight: 500;
+}
+
+.repairs-detail {
+  font-weight: 400;
+  color: var(--ink-mute);
+}
+
+// The actionable part: one line per cue, scrolling past a screenful.
+.repairs-list {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  max-height: 14rem;
+  overflow-y: auto;
+  padding: 0 0 0 1.4rem;
+  list-style: none;
+  font-size: 0.8rem;
+  line-height: 1.45;
+
+  li {
+    display: grid;
+    grid-template-columns: minmax(5rem, max-content) 1fr;
+    gap: 0.75rem;
+  }
+}
+
+.repairs-where {
+  font-family: var(--font-code);
+  font-size: 0.74rem;
+  color: var(--flag);
+  white-space: nowrap;
+}
+
+.repairs-reason {
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
 }
 
 .pulsing {
@@ -153,36 +219,29 @@
 @keyframes pulse {
   0%,
   100% {
-    transform: scale(1);
     opacity: 1;
   }
 
   50% {
-    transform: scale(1.18);
-    opacity: 0.78;
+    opacity: 0.35;
   }
 }
 
 @media (max-width: 720px) {
-  .progress-stats,
-  .progress-row,
-  .result-item {
+  .progress-stats {
     grid-template-columns: 1fr;
   }
 
-  .scroll-list {
-    max-height: 280px;
+  .stat {
+    border-left: 0;
+    padding-left: 0;
   }
+
 }
 
 @media (prefers-reduced-motion: reduce) {
-  // Keep the "working" indicator legible as a static ring.
   .pulsing {
     animation: none;
-    opacity: 1;
-    box-shadow:
-      0 0 0 5px var(--color-primary-soft),
-      0 0 0 8px var(--color-primary-soft);
   }
 }
 

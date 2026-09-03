@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 
 import { StubTranslationService, flush, makeFile } from '../spec-helpers';
 import { UploadedFile } from './file-types';
+import { SubtitleBlock } from './srt-parser';
 import { TranslationRunnerService } from './translation-runner.service';
 import { TranslationCancelledError, TranslationService } from './translation.service';
 
@@ -137,4 +138,93 @@ describe('TranslationRunnerService', () => {
     expect(runner.fileStatuses()[1]!.error).toBeUndefined();
     expect(runner.fileStatuses()[0]!.content).toBe('translated');
   });
+
+  describe('what a finished file carries for the reviewer', () => {
+    const source: SubtitleBlock[] = [
+      { number: 1, timestamp: '00:00:01,000 --> 00:00:02,000', text: 'One' },
+      { number: 2, timestamp: '00:00:03,000 --> 00:00:04,000', text: 'Two' },
+    ];
+
+    function reviewable(name: string): UploadedFile {
+      const file = makeFile(name, source.length);
+      file.doc = {
+        format: 'srt',
+        blocks: source,
+        rebuild: (translated) => translated.map((b) => `${b.number}|${b.text}`).join('\n'),
+      };
+      return file;
+    }
+
+    it('carries the progress of every step from the prepass to the repairs', async () => {
+      files.set([reviewable('a.srt')]);
+      runner.start();
+      await flush();
+      expect(runner.fileStatuses()[0]!.progress).toEqual({ stage: 'prepass', done: 0, total: 0, percent: 0 });
+      service.pending[0]!.onProgress!({ stage: 'batches', done: 0, total: 3, percent: 20 });
+      expect(runner.fileStatuses()[0]!.progress).toMatchObject({ stage: 'batches', total: 3 });
+      expect(runner.overallProgressPercent()).toBe(20);
+      // After the last batch the stage says what still runs, and the bar keeps moving.
+      service.pending[0]!.onProgress!({ stage: 'checking', done: 1, total: 2, percent: 85 });
+      expect(runner.fileStatuses()[0]!.progress!.stage).toBe('checking');
+      service.pending[0]!.onProgress!({ stage: 'repairing', done: 0, total: 4, percent: 90 });
+      expect(runner.fileStatuses()[0]!.progress!.stage).toBe('repairing');
+      expect(runner.overallProgressPercent()).toBe(90);
+      service.pending[0]!.resolve('1|uno\n2|dos');
+      await flush();
+    });
+
+    it('pairs every source cue with its translation and pins each flag to its cue', async () => {
+      files.set([reviewable('a.srt')]);
+      runner.start();
+      await flush();
+
+      const call = service.pending[0]!;
+      call.reportReview({
+        blocks: [
+          { number: 1, timestamp: source[0]!.timestamp, text: 'uno' },
+          { number: 2, timestamp: source[1]!.timestamp, text: 'dos' },
+        ],
+        flags: [{
+          block: 2,
+          message: 'Block 2: formatting tags changed (<i>,</i> -> )',
+          problem: 'block 2: keep the tags',
+          cause: 'tags',
+        }],
+        raised: [
+          { block: 1, message: 'Block 1: speaker dashes changed (2 -> 0)',
+            problem: 'block 1: keep the dashes', cause: 'dashes' },
+          { block: 2, message: 'Block 2: formatting tags changed (<i>,</i> -> )',
+            problem: 'block 2: keep the tags', cause: 'tags' },
+        ],
+      });
+      call.resolve('1|uno\n2|dos');
+      await flush();
+
+      const review = runner.doneFiles()[0]!.review!;
+      expect(review.cues).toEqual([
+        { number: 1, timestamp: source[0]!.timestamp, source: 'One', target: 'uno', flags: [] },
+        { number: 2, timestamp: source[1]!.timestamp, source: 'Two', target: 'dos',
+          flags: ['Block 2: formatting tags changed (<i>,</i> -> )'] },
+      ]);
+      // Raised and then cleared: the dashes on cue 1 were put back by a retry.
+      expect(review.repaired).toEqual([
+        { block: 1, cause: 'dashes', message: 'Block 1: speaker dashes changed (2 -> 0)' },
+      ]);
+    });
+
+    it('starts a retried file with no review from the failed run', async () => {
+      files.set([reviewable('a.srt')]);
+      runner.start();
+      await flush();
+      const call = service.pending[0]!;
+      call.notify('something was skipped');
+      call.reject(new Error('502 Bad Gateway'));
+      await flush();
+
+      runner.retryFailed();
+      await flush();
+      expect(runner.fileStatuses()[0]!.review).toBeUndefined();
+    });
+  });
 });
+

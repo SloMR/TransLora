@@ -1,7 +1,7 @@
 <div class="section-top">
   <div>
     <h2 class="card-title">Settings</h2>
-    <p class="section-subtitle">Choose language and provider.</p>
+    <p class="section-subtitle">Language, quality and provider.</p>
   </div>
 
   <ng-content />
@@ -16,16 +16,21 @@
         <option [value]="lang.name">{{ lang.name }}</option>
       }
     </select>
+    <p class="field-hint">Auto-detect works for almost every file. Pick one to force the source language.</p>
   </div>
 
-  <button class="lang-swap-button" type="button" (click)="swapLanguages()" title="Swap languages" aria-label="Swap source and target language">
-    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="m17 3 4 4-4 4" />
-      <path d="M3 7h18" />
-      <path d="m7 21-4-4 4-4" />
-      <path d="M21 17H3" />
-    </svg>
-  </button>
+  <div class="lang-swap">
+    <span class="lang-swap-rule" aria-hidden="true"></span>
+    <button class="lang-swap-button" type="button" (click)="swapLanguages()" title="Swap languages" aria-label="Swap source and target language">
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m17 3 4 4-4 4" />
+        <path d="M3 7h18" />
+        <path d="m7 21-4-4 4-4" />
+        <path d="M21 17H3" />
+      </svg>
+    </button>
+    <span class="lang-swap-rule" aria-hidden="true"></span>
+  </div>
 
   <div class="lang-col">
     <label class="label" for="target-lang">To</label>
@@ -34,18 +39,34 @@
         <option [value]="lang.name">{{ lang.name }}</option>
       }
     </select>
+    <p class="field-hint" id="target-lang-norms">
+      <span class="script-note">{{ targetNormsLabel() }}</span>
+    </p>
   </div>
-</div>
-<div class="lang-hints">
-  <p class="field-hint">Auto-detect works for almost every file. Pick one to force the source language.</p>
-  <span class="lang-hints-spacer" aria-hidden="true"></span>
-  <p class="field-hint" id="target-lang-norms">
-    Subtitles will be translated into this language.
-    <span class="script-note">{{ targetNormsLabel() }}</span>
-  </p>
 </div>
 
 <div class="divider"></div>
+
+<div class="field">
+  <span class="label" id="quality-label">Quality</span>
+  <div class="segmented" role="group" aria-labelledby="quality-label">
+    @for (option of qualityOptions; track option.key) {
+      <button
+        class="segment"
+        type="button"
+        [class.segment-active]="qualityPreset() === option.key"
+        [attr.aria-pressed]="qualityPreset() === option.key"
+        (click)="qualitySelected.emit(option.key)"
+      >
+        {{ option.label }}
+      </button>
+    }
+    @if (qualityPreset() === 'custom') {
+      <span class="segment segment-active segment-static" aria-current="true">Custom</span>
+    }
+  </div>
+  <p class="field-hint">{{ qualitySummary() }}</p>
+</div>
 
 <div class="field">
   <span class="label" id="provider-label">Provider</span>
@@ -105,22 +126,25 @@
 } @else {
   <div class="field">
     <label class="label" for="model-name">Model</label>
-    <input
-      id="model-name"
-      type="text"
-      class="input"
-      list="model-suggestions"
-      [ngModel]="modelName()"
-      (ngModelChange)="modelName.set($event)"
-      [placeholder]="currentPreset().models.length > 0 ? 'Pick a model or type your own' : 'Optional model name'"
-    />
-    @if (currentPreset().models.length > 0) {
-      <datalist id="model-suggestions">
-        @for (m of currentPreset().models; track m) {
-          <option [value]="m"></option>
-        }
-      </datalist>
+    <select id="model-name" class="select" [ngModel]="modelChoice()" (ngModelChange)="onModelChoice($event)">
+      @for (m of currentPreset().models; track m.id) {
+        <option [value]="m.id">{{ optionLabel(m) }}</option>
+      }
+      <option [value]="OTHER_MODEL">Another model id</option>
+    </select>
+    @if (showOtherModel()) {
+      <input
+        id="model-name-other"
+        type="text"
+        class="input"
+        autocomplete="off"
+        spellcheck="false"
+        aria-label="Model id"
+        [ngModel]="modelName()"
+        (ngModelChange)="modelName.set($event)"
+        placeholder="Type a model id your account supports"
+      />
     }
-    <p class="field-hint">Pick one of the provider's models or type a model ID your account supports.</p>
+    <p class="field-hint">{{ modelHint() }}</p>
   </div>
 }

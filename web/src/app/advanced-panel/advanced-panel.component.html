@@ -15,6 +15,7 @@
 </button>
 
 @if (showAdvanced()) {
+  <div class="advanced-backdrop" (click)="closeAdvanced()" aria-hidden="true"></div>
   <section id="advanced-panel" class="advanced-popover" role="group" aria-labelledby="advanced-toggle">
     <div class="advanced-popover-header">
       <div>
@@ -134,13 +135,13 @@
 
       <div class="field-grid">
         <div class="field">
-          <label class="label" for="formality">Register</label>
+          <label class="label" for="formality">Tone</label>
           <select id="formality" class="select" [ngModel]="formality()" (ngModelChange)="formality.set($event)">
             @for (option of formalityOptions; track option.value) {
               <option [value]="option.value">{{ option.label }}</option>
             }
           </select>
-          <p class="field-hint">Forces formal or informal address. Auto leaves the register to the model.</p>
+          <p class="field-hint">Polite is how you would speak to a stranger ("Would you like some tea?"), casual to a friend ("Want some tea?"). Same as the original follows the source line by line.</p>
         </div>
 
         <div class="field field-num">
@@ -161,7 +162,7 @@
           [maxlength]="dialectMaxLength"
           [ngModel]="dialect()"
           (ngModelChange)="setDialect($event)"
-          placeholder="e.g. Egyptian Arabic"
+          placeholder="e.g. Saudi Arabic"
         />
         <p class="field-hint">Names the exact variant for the glossary scan and every batch. Blank lets the prepass infer one.</p>
       </div>
@@ -238,7 +239,7 @@
           <input type="checkbox" [ngModel]="reflow()" (ngModelChange)="reflow.set($event)" />
           <span>Re-wrap lines to the source layout</span>
         </label>
-        <p class="field-hint">Re-wraps each cue to the source's line count and the script's line limit, locally — no extra LLM call.</p>
+        <p class="field-hint">Re-wraps each subtitle to the source's line count and the script's line limit, locally — no extra LLM call.</p>
       </div>
 
       <div class="field-toggle">
@@ -246,7 +247,7 @@
           <input type="checkbox" [ngModel]="fixFlagged()" (ngModelChange)="fixFlagged.set($event)" />
           <span>Repair flagged batches</span>
         </label>
-        <p class="field-hint">Re-issues the batches that ended with a warning — dropped tags, glossary drift, text that bled between cues — naming the exact problem. Kept only if fewer warnings remain. Rarest problem first, capped at 5% of a file, or 25% when one problem keeps recurring.</p>
+        <p class="field-hint">Re-issues the batches that ended with a warning — dropped tags, glossary drift, text that bled between lines — naming the exact problem. Kept only if fewer warnings remain. Rarest problem first, capped at 5% of a file, or 25% when one problem keeps recurring.</p>
       </div>
 
       <div class="field-toggle">
@@ -254,7 +255,7 @@
           <input type="checkbox" [ngModel]="verifyAdequacy()" (ngModelChange)="verifyAdequacy.set($event)" />
           <span>Verify adequacy (back-translation)</span>
         </label>
-        <p class="field-hint">Translates a fifth of the batches back to the source and flags cues that lost meaning, feeding them to the repair pass. Adds about 20% more calls.</p>
+        <p class="field-hint">Translates a fifth of the batches back to the source and flags lines that lost meaning, feeding them to the repair pass. Adds about 20% more calls.</p>
       </div>
 
       <div class="field-toggle">

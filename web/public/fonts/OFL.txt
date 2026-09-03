@@ -1,9 +1,14 @@
 The woff2 files in this directory are bundled so the app makes no third-party
-request on load. Both families are variable fonts, latin and latin-ext subsets,
-taken from the Google Fonts CDN (Plus Jakarta Sans v12, Sora v17).
+request on load. Latin and latin-ext subsets, taken from the Google Fonts CDN.
 
-Copyright 2020 The Plus Jakarta Sans Project Authors (https://github.com/tokotype/PlusJakartaSans)
-Copyright 2019 The Sora Project Authors (https://github.com/sora-xor/sora-font)
+Atkinson Hyperlegible - the interface face. Designed by Applied Design Works for
+the Braille Institute of America to be told apart letter by letter on a screen,
+which is what subtitles ask of a typeface.
+Copyright 2020 Braille Institute of America, Inc. (https://github.com/googlefonts/atkinson-hyperlegible)
+
+Courier Prime - timecodes and cue numbers only, the parts of a subtitle file
+that are monospaced in the file itself.
+Copyright 2015 The Courier Prime Project Authors (https://github.com/quoteunquoteapps/CourierPrime)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

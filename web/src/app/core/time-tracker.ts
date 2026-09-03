@@ -5,8 +5,7 @@ interface TimedItem {
 }
 
 interface ProgressItem {
-  currentBatch?: number;
-  totalBatches?: number;
+  progress?: { percent: number };
 }
 
 // Elapsed / avg / ETA for a translation run. Owns its own 500ms ticker and
@@ -37,9 +36,9 @@ export class TimeTracker {
     return done.reduce((s, f) => s + (f.timeMs ?? 0), 0) / done.length;
   });
 
-  // Fractional file-equivalents: in-progress files contribute
-  // currentBatch/totalBatches, so ETA shows up as soon as any file reports a
-  // first batch (including single-file runs).
+  // Fractional file-equivalents: in-progress files contribute their own
+  // percent, so ETA shows up as soon as any file reports progress (including
+  // single-file runs, from the prepass on).
   etaMs = computed<number | null>(() => {
     const done = this.doneFiles();
     const inProgress = this.inProgressFiles();
@@ -49,9 +48,7 @@ export class TimeTracker {
 
     let fractionalDone = done.length;
     for (const f of inProgress) {
-      if (f.totalBatches && f.totalBatches > 0) {
-        fractionalDone += (f.currentBatch ?? 0) / f.totalBatches;
-      }
+      if (f.progress) fractionalDone += f.progress.percent / 100;
     }
     if (fractionalDone <= 0) return null;
     if (fractionalDone >= totalFiles) return 0;

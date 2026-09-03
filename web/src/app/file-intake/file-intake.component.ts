@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
 import {
+  FileStatus,
   SUBTITLE_ACCEPT,
   SUBTITLE_EXTS,
   UploadedFile,
@@ -7,8 +8,9 @@ import {
 import { parseSubtitle } from '../core/subtitle-formats';
 import { errMessage } from '../error-message';
 
-// Picking subtitle files: the dropzone, the picked-file list, and the
-// read-and-parse path every incoming file goes through.
+// The files rail: the dropzone, the queued files with where each one is in
+// the run, and the read-and-parse
+// path every incoming file goes through.
 @Component({
   selector: 'app-file-intake',
   templateUrl: './file-intake.component.html',
@@ -21,6 +23,8 @@ export class FileIntakeComponent {
   supportedFormats = input.required<string[]>();
   isTranslating = input.required<boolean>();
   isDone = input.required<boolean>();
+  /** The run's view of each file, by the same index; empty before a run. */
+  statuses = input<FileStatus[]>([]);
 
   filesAdded = output<UploadedFile[]>();
   fileRemoved = output<number>();
@@ -121,6 +125,45 @@ export class FileIntakeComponent {
 
   removeFile(index: number) {
     this.fileRemoved.emit(index);
+  }
+
+  statusOf(index: number): FileStatus['status'] | 'queued' {
+    return this.statuses()[index]?.status ?? 'queued';
+  }
+
+  flaggedIn(index: number): number {
+    return this.statuses()[index]?.review?.cues.filter((c) => c.flags.length > 0).length ?? 0;
+  }
+
+  /** The one line under a file's name: what it is, or what became of it. */
+  meta(index: number): string {
+    const file = this.files()[index];
+    const status = this.statuses()[index];
+    const blocks = `${file?.blockCount ?? 0} lines`;
+    if (!status) return blocks;
+    switch (status.status) {
+      case 'translating': {
+        const p = status.progress;
+        switch (p?.stage) {
+          case 'batches':
+            return `${blocks}, batch ${p.done} of ${p.total}`;
+          case 'checking':
+            return `${blocks}, checking the meaning survived, ${p.done} of ${p.total}`;
+          case 'repairing':
+            return `${blocks}, repairing the flagged lines, ${p.done} of ${p.total}`;
+          default:
+            return `${blocks}, reading names, terms and speakers first`;
+        }
+      }
+      case 'done': {
+        const flagged = this.flaggedIn(index);
+        return flagged ? `${blocks}, ${flagged} flagged` : `${blocks}, none flagged`;
+      }
+      case 'failed':
+        return status.error ?? 'Failed';
+      default:
+        return blocks;
+    }
   }
 
   // Strict UTF-8 like the CLI (BOM stripped): bad bytes fail instead of becoming U+FFFD.
