@@ -2,6 +2,7 @@ import pytest
 
 from core.context_parse import parse_attribution_response, parse_context_response
 from core.context_pass import (
+    CONSISTENCY_MIN_CHARS,
     IDIOM_MAX_TARGET_CHARS,
     MAX_IDIOMS,
     MAX_TERMS,
@@ -647,16 +648,30 @@ def test_three_cues_disagreeing_are_not_enough():
 
 
 def test_an_eight_character_motif_is_still_checked():
-    # "the line" is under the scan's own floor, where a fragment costs a term
+    # "dry dock" is under the scan's own floor, where a fragment costs a term
     # slot. Here it costs nothing, and it is the phrase the graded run split.
-    source = [_block(n, f"{opener} the line {closer}.") for n, (opener, closer)
+    source = [_block(n, f"{opener} dry dock {closer}.") for n, (opener, closer)
               in enumerate([("Nadia says she crossed", "today"),
                             ("Omar asks where is", "downstairs"),
                             ("Priya replies that Karim crossed", "quietly"),
                             ("Lena writes about", "twice")], start=1)]
     output = _rendered(source, ["الحد", "الخط", "الحدود", "المسموح"])
     assert [s.phrase for s in find_inconsistent_phrases(source, output)] == \
-        ["the line"]
+        ["dry dock"]
+
+
+def test_one_word_wearing_function_words_is_a_word_not_a_phrase():
+    # "the match" comes out of Arabic as one inflected word; pinning it is the
+    # glossary's job, and reading its varied endings as drift was pure noise.
+    assert recurring_phrases(_repeat("the match", 5), CONSISTENCY_MIN_CHARS) == []
+    assert recurring_phrases(_repeat("should be", 5), CONSISTENCY_MIN_CHARS) == []
+
+
+def test_the_best_ranked_window_speaks_for_a_repeated_line():
+    # A quoted line longer than PHRASE_MAX_WORDS mines into overlapping
+    # windows that recur in exactly the same cues; one seed says it all.
+    line = "more painful than the risk it takes to blossom"
+    assert recurring_phrases(_repeat(line, 3)) == ["more painful than the risk"]
 
 
 def test_a_phrase_the_source_never_repeats_is_never_checked():

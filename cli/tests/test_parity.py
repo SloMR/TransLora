@@ -392,8 +392,10 @@ def _ts_declaration(source: str, name: str) -> str:
 
 
 def _ts_strings(source: str, name: str) -> frozenset[str]:
-    """A `['a', 'b']` or `new Set([...])` declaration, as a set."""
-    return frozenset(re.findall(r"'([^']*)'", _ts_declaration(source, name)))
+    """A `['a', 'b']` or `new Set([...])` declaration, as a set. Either quote
+    style: a word with an apostrophe in it has to be double-quoted."""
+    return frozenset(a or b for a, b in re.findall(
+        r"'([^']*)'|\"([^\"]*)\"", _ts_declaration(source, name)))
 
 
 def _ts_record_blocks(source_body: str) -> dict[str, str]:
@@ -588,6 +590,7 @@ def test_shared_string_sets_are_identical_in_both_trees(name: str) -> None:
     ("MAX_IDIOMS", 15),
     ("PHRASE_MIN_WORDS", 2),
     ("PHRASE_MAX_WORDS", 5),
+    ("PHRASE_MIN_CONTENT_WORDS", 2),
     ("PHRASE_MIN_COUNT", 3),
     ("PHRASE_MIN_CHARS", 9),
     ("PHRASE_LIMIT", 25),

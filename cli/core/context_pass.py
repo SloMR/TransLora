@@ -4,7 +4,6 @@ holds, and the per-batch slice it renders into a translation prompt."""
 from __future__ import annotations
 
 import re
-from collections import Counter
 from dataclasses import dataclass, field
 from functools import lru_cache
 
@@ -28,6 +27,9 @@ IDIOM_MAX_TARGET_CHARS = 40
 # seeded from the file itself rather than from whatever the model noticed.
 PHRASE_MIN_WORDS = 2
 PHRASE_MAX_WORDS = 5
+# At least this many words that are not function words: "the match" is one
+# word wearing an article, and pinning a word is the glossary's job.
+PHRASE_MIN_CONTENT_WORDS = 2
 PHRASE_MIN_COUNT = 3
 # Shorter than this and a phrase is a fragment, not a rendering decision.
 PHRASE_MIN_CHARS = 9
@@ -44,15 +46,43 @@ CONSISTENCY_MIN_CHARS = 8
 CONSISTENCY_MIN_OCCURRENCES = 4
 
 # A phrase made only of function words pins nothing worth pinning.
+# Function words, conversational filler and the commonest verbs: a run made
+# only of these is never a term worth pinning, and a phrase like "thank you"
+# or "yeah yeah" is expected to be rendered many ways.
 PHRASE_STOPWORDS = frozenset({
-    "a", "about", "all", "am", "an", "and", "any", "are", "as", "at", "be",
-    "been", "but", "by", "can", "could", "did", "do", "does", "for", "from",
-    "get", "got", "had", "has", "have", "he", "her", "here", "him", "his",
-    "how", "i", "if", "in", "is", "it", "its", "just", "me", "my", "no", "not",
-    "of", "on", "or", "our", "out", "she", "so", "than", "that", "the", "their",
-    "them", "then", "there", "these", "they", "this", "to", "up", "us", "was",
-    "we", "were", "what", "when", "where", "which", "who", "will", "with",
-    "would", "you", "your",
+    "a", "about", "actually", "again", "ah", "ain't", "all", "also", "always",
+    "am", "an", "and", "any", "anyone", "anything", "anyway", "are", "aren't",
+    "as", "ask", "asked", "at", "away", "back", "bad", "be", "been", "bit",
+    "but", "by", "bye", "call", "called", "came", "can", "can't", "cannot",
+    "come", "comes", "coming", "could", "couldn't", "did", "didn't", "do",
+    "does", "doesn't", "don't", "down", "else", "even", "ever", "everyone",
+    "everything", "exactly", "feel", "feels", "felt", "find", "fine", "for",
+    "found", "from", "gave", "get", "give", "given", "gives", "go", "goes",
+    "going", "gone", "gonna", "good", "got", "gotta", "great", "guess", "guy",
+    "guys", "had", "hadn't", "happen", "happened", "has", "hasn't", "have",
+    "haven't", "he", "he's", "hello", "help", "her", "here", "here's", "hey",
+    "hi", "him", "his", "how", "i", "i'd", "i'll", "i'm", "i've", "if", "in",
+    "into", "is", "isn't", "it", "it's", "its", "just", "keep", "kept", "kind",
+    "knew", "know", "known", "knows", "leave", "left", "let", "let's", "like",
+    "liked", "likes", "little", "look", "looked", "looks", "lot", "lots",
+    "love", "made", "make", "makes", "man", "many", "may", "maybe", "me",
+    "mean", "means", "meant", "might", "more", "most", "much", "must", "my",
+    "need", "needed", "needs", "never", "nice", "no", "nobody", "nope", "not",
+    "nothing", "now", "of", "off", "oh", "ok", "okay", "on", "one", "ones",
+    "only", "onto", "or", "ought", "our", "out", "over", "people", "please",
+    "put", "really", "right", "said", "saw", "say", "says", "see", "seen",
+    "sees", "shall", "she", "she's", "should", "shouldn't", "so", "someone",
+    "something", "sorry", "sort", "still", "stop", "stuff", "sure", "take",
+    "taken", "takes", "talk", "talking", "tell", "tells", "than", "thank",
+    "thanks", "that", "that's", "the", "their", "them", "then", "there",
+    "there's", "these", "they", "they'd", "they'll", "they're", "they've",
+    "thing", "things", "think", "thinks", "this", "thought", "time", "to",
+    "told", "too", "took", "tried", "try", "trying", "up", "us", "very",
+    "wait", "wanna", "want", "wanted", "wants", "was", "wasn't", "way", "we",
+    "we'd", "we'll", "we're", "we've", "well", "went", "were", "weren't",
+    "what", "what's", "when", "where", "which", "who", "who's", "will", "with",
+    "won't", "work", "works", "would", "wouldn't", "y'all", "yeah", "yep",
+    "yes", "you", "you'd", "you'll", "you're", "you've", "your",
 })
 
 # Letters and digits, with internal apostrophes kept so "that's" stays one word.
@@ -338,23 +368,27 @@ def detect_participants(
 # The phrase tokenizer: what a phrase is mined from, and what it is matched
 # against later, so a phrase can never fail to find the cue it came from.
 def _phrase_words(text: str) -> list[str]:
-    return _PHRASE_WORD_RE.findall(strip_tags(text).lower())
+    return _PHRASE_WORD_RE.findall(strip_tags(text).lower().replace("’", "'"))
 
 
-def _count_ngrams(blocks: list[SubtitleBlock], min_chars: int) -> Counter[str]:
-    counts: Counter[str] = Counter()
-    for block in blocks:
+def _mine_phrases(
+    blocks: list[SubtitleBlock], min_chars: int,
+) -> dict[str, list[int]]:
+    """Every candidate phrase, with the index of the block of each occurrence."""
+    at: dict[str, list[int]] = {}
+    for index, block in enumerate(blocks):
         words = _phrase_words(block.text)
         for size in range(PHRASE_MIN_WORDS, PHRASE_MAX_WORDS + 1):
             for start in range(len(words) - size + 1):
                 gram = words[start:start + size]
-                if all(word in PHRASE_STOPWORDS for word in gram):
+                content = sum(1 for word in gram if word not in PHRASE_STOPWORDS)
+                if content < PHRASE_MIN_CONTENT_WORDS:
                     continue
                 phrase = " ".join(gram)
                 if len(phrase) < min_chars:
                     continue
-                counts[phrase] += 1
-    return counts
+                at.setdefault(phrase, []).append(index)
+    return at
 
 
 def recurring_phrases(
@@ -364,22 +398,33 @@ def recurring_phrases(
     consistently is worth. Deterministic — no model call — and fed to the scan
     so the glossary is seeded from the file instead of the model's attention.
     """
-    kept = {phrase: count
-            for phrase, count in _count_ngrams(blocks, min_chars).items()
-            if count >= PHRASE_MIN_COUNT}
+    kept = {phrase: at
+            for phrase, at in _mine_phrases(blocks, min_chars).items()
+            if len(at) >= PHRASE_MIN_COUNT}
     by_count: dict[int, list[str]] = {}
-    for phrase, count in kept.items():
-        by_count.setdefault(count, []).append(phrase)
+    for phrase, at in kept.items():
+        by_count.setdefault(len(at), []).append(phrase)
 
     # A short phrase seen only inside a longer one pins nothing extra.
     survivors = [
-        phrase for phrase, count in kept.items()
+        phrase for phrase, at in kept.items()
         if not any(other != phrase and f" {phrase} " in f" {other} "
-                   for other in by_count[count])
+                   for other in by_count[len(at)])
     ]
     # Code-point order, not locale order: the web mirror must rank identically.
-    survivors.sort(key=lambda phrase: (-(kept[phrase] * len(phrase)), phrase))
-    return survivors[:PHRASE_LIMIT]
+    survivors.sort(key=lambda phrase: (-(len(kept[phrase]) * len(phrase)), phrase))
+    # Two phrases recurring in exactly the same cues are windows onto one
+    # motif — a repeated line longer than PHRASE_MAX_WORDS — and either check
+    # would say the same thing about each of them. The best-ranked one speaks.
+    seen: set[frozenset[int]] = set()
+    motifs: list[str] = []
+    for phrase in survivors:
+        cues = frozenset(kept[phrase])
+        if cues in seen:
+            continue
+        seen.add(cues)
+        motifs.append(phrase)
+    return motifs[:PHRASE_LIMIT]
 
 
 @dataclass(frozen=True)

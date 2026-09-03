@@ -22,6 +22,9 @@ export const MAX_IDIOMS = 15;
 // seeded from the file itself rather than from whatever the model noticed.
 export const PHRASE_MIN_WORDS = 2;
 export const PHRASE_MAX_WORDS = 5;
+// At least this many words that are not function words: "the match" is one
+// word wearing an article, and pinning a word is the glossary's job.
+export const PHRASE_MIN_CONTENT_WORDS = 2;
 export const PHRASE_MIN_COUNT = 3;
 // Shorter than this and a phrase is a fragment, not a rendering decision.
 export const PHRASE_MIN_CHARS = 9;
@@ -38,15 +41,43 @@ export const CONSISTENCY_MIN_CHARS = 8;
 export const CONSISTENCY_MIN_OCCURRENCES = 4;
 
 // A phrase made only of function words pins nothing worth pinning.
+// Function words, conversational filler and the commonest verbs: a run made
+// only of these is never a term worth pinning, and a phrase like "thank you"
+// or "yeah yeah" is expected to be rendered many ways.
 export const PHRASE_STOPWORDS = new Set([
-  'a', 'about', 'all', 'am', 'an', 'and', 'any', 'are', 'as', 'at', 'be',
-  'been', 'but', 'by', 'can', 'could', 'did', 'do', 'does', 'for', 'from',
-  'get', 'got', 'had', 'has', 'have', 'he', 'her', 'here', 'him', 'his',
-  'how', 'i', 'if', 'in', 'is', 'it', 'its', 'just', 'me', 'my', 'no', 'not',
-  'of', 'on', 'or', 'our', 'out', 'she', 'so', 'than', 'that', 'the', 'their',
-  'them', 'then', 'there', 'these', 'they', 'this', 'to', 'up', 'us', 'was',
-  'we', 'were', 'what', 'when', 'where', 'which', 'who', 'will', 'with',
-  'would', 'you', 'your',
+  'a', 'about', 'actually', 'again', 'ah', "ain't", 'all', 'also', 'always',
+  'am', 'an', 'and', 'any', 'anyone', 'anything', 'anyway', 'are', "aren't",
+  'as', 'ask', 'asked', 'at', 'away', 'back', 'bad', 'be', 'been', 'bit',
+  'but', 'by', 'bye', 'call', 'called', 'came', 'can', "can't", 'cannot',
+  'come', 'comes', 'coming', 'could', "couldn't", 'did', "didn't", 'do',
+  'does', "doesn't", "don't", 'down', 'else', 'even', 'ever', 'everyone',
+  'everything', 'exactly', 'feel', 'feels', 'felt', 'find', 'fine', 'for',
+  'found', 'from', 'gave', 'get', 'give', 'given', 'gives', 'go', 'goes',
+  'going', 'gone', 'gonna', 'good', 'got', 'gotta', 'great', 'guess', 'guy',
+  'guys', 'had', "hadn't", 'happen', 'happened', 'has', "hasn't", 'have',
+  "haven't", 'he', "he's", 'hello', 'help', 'her', 'here', "here's", 'hey',
+  'hi', 'him', 'his', 'how', 'i', "i'd", "i'll", "i'm", "i've", 'if', 'in',
+  'into', 'is', "isn't", 'it', "it's", 'its', 'just', 'keep', 'kept', 'kind',
+  'knew', 'know', 'known', 'knows', 'leave', 'left', 'let', "let's", 'like',
+  'liked', 'likes', 'little', 'look', 'looked', 'looks', 'lot', 'lots', 'love',
+  'made', 'make', 'makes', 'man', 'many', 'may', 'maybe', 'me', 'mean',
+  'means', 'meant', 'might', 'more', 'most', 'much', 'must', 'my', 'need',
+  'needed', 'needs', 'never', 'nice', 'no', 'nobody', 'nope', 'not', 'nothing',
+  'now', 'of', 'off', 'oh', 'ok', 'okay', 'on', 'one', 'ones', 'only', 'onto',
+  'or', 'ought', 'our', 'out', 'over', 'people', 'please', 'put', 'really',
+  'right', 'said', 'saw', 'say', 'says', 'see', 'seen', 'sees', 'shall', 'she',
+  "she's", 'should', "shouldn't", 'so', 'someone', 'something', 'sorry',
+  'sort', 'still', 'stop', 'stuff', 'sure', 'take', 'taken', 'takes', 'talk',
+  'talking', 'tell', 'tells', 'than', 'thank', 'thanks', 'that', "that's",
+  'the', 'their', 'them', 'then', 'there', "there's", 'these', 'they',
+  "they'd", "they'll", "they're", "they've", 'thing', 'things', 'think',
+  'thinks', 'this', 'thought', 'time', 'to', 'told', 'too', 'took', 'tried',
+  'try', 'trying', 'up', 'us', 'very', 'wait', 'wanna', 'want', 'wanted',
+  'wants', 'was', "wasn't", 'way', 'we', "we'd", "we'll", "we're", "we've",
+  'well', 'went', 'were', "weren't", 'what', "what's", 'when', 'where',
+  'which', 'who', "who's", 'will', 'with', "won't", 'work', 'works', 'would',
+  "wouldn't", "y'all", 'yeah', 'yep', 'yes', 'you', "you'd", "you'll",
+  "you're", "you've", 'your',
 ]);
 
 // Letters and digits, with internal apostrophes kept so "that's" stays one word.
@@ -323,36 +354,50 @@ export function detectParticipants(text: string, characters: CharacterHint[]): s
 export function recurringPhrases(
   blocks: SubtitleBlock[], minChars: number = PHRASE_MIN_CHARS,
 ): string[] {
-  const counts = new Map<string, number>();
-  for (const block of blocks) {
+  // Every candidate phrase, with the index of the block of each occurrence.
+  const at = new Map<string, number[]>();
+  blocks.forEach((block, index) => {
     const words = phraseWords(block.text);
     for (let n = PHRASE_MIN_WORDS; n <= PHRASE_MAX_WORDS; n++) {
       for (let i = 0; i + n <= words.length; i++) {
         const gram = words.slice(i, i + n);
-        if (gram.every((w) => PHRASE_STOPWORDS.has(w))) continue;
+        const content = gram.filter((w) => !PHRASE_STOPWORDS.has(w)).length;
+        if (content < PHRASE_MIN_CONTENT_WORDS) continue;
         const phrase = gram.join(' ');
         if (phrase.length < minChars) continue;
-        counts.set(phrase, (counts.get(phrase) ?? 0) + 1);
+        const seen = at.get(phrase);
+        if (seen) seen.push(index); else at.set(phrase, [index]);
       }
     }
-  }
+  });
 
-  const kept = [...counts].filter(([, count]) => count >= PHRASE_MIN_COUNT);
+  const kept = [...at].filter(([, cues]) => cues.length >= PHRASE_MIN_COUNT);
   // A short phrase seen only inside a longer one pins nothing extra.
-  const survivors = kept.filter(([phrase, count]) => !kept.some(
-    ([other, otherCount]) => other !== phrase && otherCount === count
+  const survivors = kept.filter(([phrase, cues]) => !kept.some(
+    ([other, otherCues]) => other !== phrase && otherCues.length === cues.length
       && ` ${other} `.includes(` ${phrase} `),
   ));
   // Code-point order, not locale order: the CLI mirror must rank identically.
-  survivors.sort((a, b) => (b[1] * b[0].length) - (a[1] * a[0].length)
+  survivors.sort((a, b) => (b[1].length * b[0].length) - (a[1].length * a[0].length)
     || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
-  return survivors.slice(0, PHRASE_LIMIT).map(([phrase]) => phrase);
+  // Two phrases recurring in exactly the same cues are windows onto one motif
+  // — a repeated line longer than PHRASE_MAX_WORDS — and either check would
+  // say the same thing about each of them. The best-ranked one speaks.
+  const seenCues = new Set<string>();
+  const motifs: string[] = [];
+  for (const [phrase, cues] of survivors) {
+    const key = [...new Set(cues)].sort((x, y) => x - y).join(',');
+    if (seenCues.has(key)) continue;
+    seenCues.add(key);
+    motifs.push(phrase);
+  }
+  return motifs.slice(0, PHRASE_LIMIT);
 }
 
 // The phrase tokenizer: what a phrase is mined from, and what it is matched
 // against later, so a phrase can never fail to find the cue it came from.
 function phraseWords(text: string): string[] {
-  return stripTags(text).toLowerCase().match(PHRASE_WORD_RE) ?? [];
+  return stripTags(text).toLowerCase().replace(/’/g, "'").match(PHRASE_WORD_RE) ?? [];
 }
 
 /** A recurring source phrase whose cues came back with no wording in common. */
