@@ -13,6 +13,7 @@ from core.context_pass import (
     SceneHint,
     TermHint,
     _needs_attribution,
+    drift_phrase,
     enrich_scenes_with_block_text,
     find_inconsistent_phrases,
     glossary_key,
@@ -31,6 +32,11 @@ _TEST_BUDGET = 24_000
 def _block(n: int, text: str) -> SubtitleBlock:
     return SubtitleBlock(number=n, timestamp="00:00:00,000 --> 00:00:01,000", text=text)
 
+
+
+def _drift_warnings(ctx: FileContext, batch, output) -> list[str]:
+    return [f"Block {d.block}: {drift_phrase(d)}"
+            for d in ctx.drift_entries(batch, output)]
 
 def test_parse_well_formed_response():
     raw = """
@@ -772,7 +778,7 @@ _BRIEFING = FileContext(terms=[TermHint("safety briefing", "جلسة السلا�
 def test_a_term_rendered_some_other_way_is_reported():
     batch = [_block(1, "A safety briefing session.")]
     output = [_block(1, "ندوة عن حصة أخرى الجنسية.")]
-    assert _BRIEFING.drift_warnings(batch, output) == [
+    assert _drift_warnings(_BRIEFING, batch, output) == [
         "Block 1: glossary term 'safety briefing' was not rendered as "
         "'جلسة السلامة'"]
 
@@ -780,29 +786,29 @@ def test_a_term_rendered_some_other_way_is_reported():
 def test_a_term_rendered_as_asked_is_not_reported():
     batch = [_block(1, "A safety briefing session.")]
     output = [_block(1, "ندوة عن جلسة السلامة.")]
-    assert _BRIEFING.drift_warnings(batch, output) == []
+    assert _drift_warnings(_BRIEFING, batch, output) == []
 
 
 def test_a_term_the_batch_never_uses_is_not_reported():
-    assert _BRIEFING.drift_warnings([_block(1, "Good morning.")],
+    assert _drift_warnings(_BRIEFING, [_block(1, "Good morning.")],
                                       [_block(1, "صباح الخير.")]) == []
 
 
-def test_the_drift_report_names_the_batch_so_it_can_be_found():
+def test_the_drift_report_names_the_cue_so_it_can_be_found():
     batch = [_block(7, "Nothing here."), _block(8, "safety briefing again")]
     output = [_block(7, "لا شيء هنا."), _block(8, "حصة أخرى مجددا")]
-    assert _BRIEFING.drift_warnings(batch, output)[0].startswith("Block 7:")
+    assert _drift_warnings(_BRIEFING, batch, output)[0].startswith("Block 8:")
 
 
 def test_a_term_rendered_with_an_attached_prefix_still_counts():
     # Arabic glues conjunctions to the word; a whole-word test would misfire.
     batch = [_block(1, "safety briefing")]
     output = [_block(1, "وجلسة السلامة")]
-    assert _BRIEFING.drift_warnings(batch, output) == []
+    assert _drift_warnings(_BRIEFING, batch, output) == []
 
 
 def test_an_empty_batch_reports_nothing():
-    assert _BRIEFING.drift_warnings([], []) == []
+    assert _drift_warnings(_BRIEFING, [], []) == []
 
 
 # === Character-name drift ====================================================
@@ -815,13 +821,13 @@ _CAST = FileContext(characters=[CharacterHint("Phyllis", "فيليس", "female")
 def test_a_character_name_spelled_some_other_way_is_reported():
     batch = [_block(346, "Phyllis, close the door.")]
     output = [_block(346, "فيلس، أغلقي الباب.")]
-    assert _CAST.drift_warnings(batch, output) == [
+    assert _drift_warnings(_CAST, batch, output) == [
         "Block 346: character name 'Phyllis' was not rendered as 'فيليس'"]
 
 
 def test_a_character_name_rendered_as_pinned_is_not_reported():
     batch = [_block(340, "Phyllis, close the door.")]
-    assert _CAST.drift_warnings(batch, [_block(340, "فيليس، أغلقي الباب.")]) == []
+    assert _drift_warnings(_CAST, batch, [_block(340, "فيليس، أغلقي الباب.")]) == []
 
 
 def test_a_name_the_cues_never_say_is_not_reported():
@@ -832,7 +838,7 @@ def test_a_name_the_cues_never_say_is_not_reported():
         scenes=[SceneHint(start=1, end=5, description="x",
                           participants=["Phyllis"])],
     )
-    assert ctx.drift_warnings([_block(1, "Close the door.")],
+    assert _drift_warnings(ctx, [_block(1, "Close the door.")],
                               [_block(1, "أغلقي الباب.")]) == []
 
 
@@ -846,6 +852,16 @@ def test_a_drifted_term_carries_its_own_repair_cause():
     batch = [_block(1, "A safety briefing session.")]
     drifts = _BRIEFING.drift_entries(batch, [_block(1, "ندوة أخرى.")])
     assert [d.cause for d in drifts] == ["term:safety briefing"]
+
+
+def test_a_drift_is_pinned_to_the_cue_that_says_the_term():
+    # The review used to show "Block 81: 'provisional squad' was not rendered"
+    # against a cue reading "Yeah. There we go.": every drift in a batch was
+    # charged to the batch's first cue.
+    batch = [_block(1, "Nothing here."), _block(2, "Still nothing."),
+             _block(3, "A safety briefing session.")]
+    output = [_block(1, "لا شيء."), _block(2, "ولا هنا."), _block(3, "ندوة أخرى.")]
+    assert [d.block for d in _BRIEFING.drift_entries(batch, output)] == [3]
 
 
 def test_terms_and_names_are_reported_together():
@@ -1009,7 +1025,7 @@ def test_an_unrendered_idiom_is_not_reported_as_drift():
     """A pinned idiom is a suggestion — flagging every one would drown the
     real glossary drift and feed the repair pass noise."""
     batch = [_block(1, "break a leg")]
-    assert _IDIOMS.drift_warnings(batch, [_block(1, "حظا موفقا")]) == []
+    assert _drift_warnings(_IDIOMS, batch, [_block(1, "حظا موفقا")]) == []
 
 
 # === One key, one table ======================================================

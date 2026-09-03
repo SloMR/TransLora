@@ -212,18 +212,13 @@ export class FileContext {
     const rendered = output.map((b) => b.text).join('\n').toLowerCase();
     const missing = (h: TermHint): boolean =>
       h.target.trim() !== '' && !rendered.includes(h.target.toLowerCase());
-    const first = batch[0]!.number;
+    const at = (h: TermHint): number => blockHolding(batch, findWord(text, h.source));
     return [
       ...terms.filter(missing).map(
-        (h) => ({ block: first, kind: 'term' as const, source: h.source, target: h.target })),
+        (h) => ({ block: at(h), kind: 'term' as const, source: h.source, target: h.target })),
       ...named.filter(missing).map(
-        (h) => ({ block: first, kind: 'name' as const, source: h.source, target: h.target })),
+        (h) => ({ block: at(h), kind: 'name' as const, source: h.source, target: h.target })),
     ];
-  }
-
-  driftWarnings(batch: SubtitleBlock[], output: SubtitleBlock[]): string[] {
-    return this.driftEntries(batch, output).map(
-      (d) => `Block ${d.block}: ${driftPhrase(d)}`);
   }
 
   // Glossary slice scoped to this batch. Register/notes are file-wide.
@@ -300,6 +295,19 @@ function escapeRegExp(text: string): string {
 // Works for Latin, Arabic, CJK, etc. A multi-word phrase matches across any
 // run of whitespace, so "safety briefing" is still found when the batch
 // broke it over two subtitle lines. Returns first match index or -1.
+/** The number of the cue whose text `offset` into the newline-joined batch
+ * falls in, so a drift is pinned to the cue that says the term rather than to
+ * whichever cue happens to open the batch. */
+function blockHolding(batch: SubtitleBlock[], offset: number): number {
+  if (offset < 0) return batch[0]!.number;
+  let end = 0;
+  for (const block of batch) {
+    end += block.text.length + 1; // the joining newline
+    if (offset < end) return block.number;
+  }
+  return batch[batch.length - 1]!.number;
+}
+
 function findWord(text: string, word: string): number {
   if (!text || !word) return -1;
   // Lowercasing can change length (e.g. "İ"), so index haystack, not text.
