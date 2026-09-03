@@ -1,17 +1,14 @@
 import {
   DEFAULT_BATCH_SIZE,
-  DEFAULT_CONTEXT_OVERLAP,
   DEFAULT_DIALECT,
-  DEFAULT_FIX_FLAGGED,
   DEFAULT_FORMALITY,
-  DEFAULT_FULL_ATTRIBUTION,
   DEFAULT_MAX_RETRIES,
   DEFAULT_PARALLEL_FILES,
   DEFAULT_REFLOW,
   DEFAULT_SCAN_BUDGET,
   DEFAULT_SEND_TEMPERATURE,
-  DEFAULT_VERIFY_ADEQUACY,
 } from './core/constants';
+import { QUALITY_PRESETS } from './run-presets';
 import { RunSettings, STORAGE_KEY } from './run-settings';
 
 describe('RunSettings', () => {
@@ -38,7 +35,7 @@ describe('RunSettings', () => {
       expect(settings.maxRetries()).toBe(DEFAULT_MAX_RETRIES);
 
       settings.setNumber('contextOverlap', undefined);
-      expect(settings.contextOverlap()).toBe(DEFAULT_CONTEXT_OVERLAP);
+      expect(settings.contextOverlap()).toBe(QUALITY_PRESETS.best.contextOverlap);
 
       settings.setNumber('scanBudget', 'not a number');
       expect(settings.scanBudget()).toBe(DEFAULT_SCAN_BUDGET);
@@ -98,9 +95,9 @@ describe('RunSettings', () => {
 
     it('defaults to the shared constants', () => {
       expect(settings.reflow()).toBe(DEFAULT_REFLOW);
-      expect(settings.fixFlagged()).toBe(DEFAULT_FIX_FLAGGED);
-      expect(settings.verifyAdequacy()).toBe(DEFAULT_VERIFY_ADEQUACY);
-      expect(settings.fullAttribution()).toBe(DEFAULT_FULL_ATTRIBUTION);
+      expect(settings.fixFlagged()).toBe(QUALITY_PRESETS.best.fixFlagged);
+      expect(settings.verifyAdequacy()).toBe(QUALITY_PRESETS.best.verifyAdequacy);
+      expect(settings.fullAttribution()).toBe(QUALITY_PRESETS.best.fullAttribution);
       expect(settings.formality()).toBe(DEFAULT_FORMALITY);
       expect(settings.dialect()).toBe(DEFAULT_DIALECT);
       // 0 means "whatever the target script's own norm is".
@@ -157,9 +154,9 @@ describe('RunSettings', () => {
           sendTemperature: 'off',
         },
         (restored) => {
-          expect(restored.fixFlagged()).toBe(DEFAULT_FIX_FLAGGED);
-          expect(restored.verifyAdequacy()).toBe(DEFAULT_VERIFY_ADEQUACY);
-          expect(restored.fullAttribution()).toBe(DEFAULT_FULL_ATTRIBUTION);
+          expect(restored.fixFlagged()).toBe(QUALITY_PRESETS.best.fixFlagged);
+          expect(restored.verifyAdequacy()).toBe(QUALITY_PRESETS.best.verifyAdequacy);
+          expect(restored.fullAttribution()).toBe(QUALITY_PRESETS.best.fullAttribution);
           expect(restored.sendTemperature()).toBe(DEFAULT_SEND_TEMPERATURE);
         },
       );
@@ -211,9 +208,9 @@ describe('RunSettings', () => {
 
       settings.resetDefaults();
 
-      expect(settings.fixFlagged()).toBe(DEFAULT_FIX_FLAGGED);
-      expect(settings.verifyAdequacy()).toBe(DEFAULT_VERIFY_ADEQUACY);
-      expect(settings.fullAttribution()).toBe(DEFAULT_FULL_ATTRIBUTION);
+      expect(settings.fixFlagged()).toBe(QUALITY_PRESETS.best.fixFlagged);
+      expect(settings.verifyAdequacy()).toBe(QUALITY_PRESETS.best.verifyAdequacy);
+      expect(settings.fullAttribution()).toBe(QUALITY_PRESETS.best.fullAttribution);
     });
   });
 
@@ -276,6 +273,27 @@ describe('RunSettings', () => {
       expect(settings.reviewApiUrl()).toBe('');
       expect(settings.reviewApiKey()).toBe('');
       expect(settings.reviewModel()).toBe('');
+    });
+  });
+
+  describe('the stored model id', () => {
+    function reload(payload: Record<string, unknown>): RunSettings {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      return new RunSettings();
+    }
+
+    it('keeps an id the person typed even when the preset does not list it', () => {
+      expect(reload({ providerType: 'openai', modelName: 'gpt-4.1-mini' }).modelName())
+        .toBe('gpt-4.1-mini');
+    });
+
+    it('falls back to the preset default when the stored id is blank', () => {
+      expect(reload({ providerType: 'openai', modelName: '' }).modelName()).toBe('gpt-5.6-luna');
+      expect(reload({ providerType: 'groq', modelName: '   ' }).modelName()).toBe('openai/gpt-oss-20b');
+    });
+
+    it('leaves the custom provider blank, because its server picks', () => {
+      expect(reload({ providerType: 'custom', modelName: '' }).modelName()).toBe('');
     });
   });
 
