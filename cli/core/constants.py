@@ -52,6 +52,9 @@ SYSTEMATIC_CAUSE_MIN = 4
 ADEQUACY_SAMPLE_FRACTION = 0.2
 ADEQUACY_MIN_BATCHES = 2
 ADEQUACY_MIN_OVERLAP = 0.35
+# A back-translation of a three-word cue that swaps one synonym scores 33%;
+# cues shorter than this are not scored at all.
+ADEQUACY_MIN_SOURCE_WORDS = 5
 
 # === Target-variant drift ===
 # Share of the finished file's cues that must carry a variant's own function

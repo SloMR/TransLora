@@ -12,7 +12,7 @@ from core.batch_runner import BatchResult
 from core.constants import ADEQUACY_MIN_OVERLAP
 from core.prompt import BACK_TRANSLATION_SYSTEM_PROMPT
 from core.srt_parser import SubtitleBlock, serialize_lite, split_batches
-from tests.conftest import make_blocks, run_async
+from tests.conftest import make_block, make_blocks, run_async
 
 
 def _install_chat(monkeypatch, handler):
@@ -85,9 +85,13 @@ def test_a_clean_round_trip_flags_nothing(monkeypatch, cfg) -> None:
     assert "Translate back to English:" in calls[0][1]
 
 
+SENTENCE = "the harbour master signs the log book at eleven tonight"
+
+
 def test_a_cue_that_lost_its_meaning_is_flagged(monkeypatch, cfg) -> None:
     cfg.verify_adequacy = True
-    batches = split_batches(make_blocks(4), 2)
+    blocks = [make_block(n, f"{SENTENCE} {n}") for n in range(1, 5)]
+    batches = split_batches(blocks, 2)
     results = [BatchResult(list(b)) for b in batches]
 
     def handler(user_message: str, n: int) -> str:
@@ -96,7 +100,8 @@ def test_a_cue_that_lost_its_meaning_is_flagged(monkeypatch, cfg) -> None:
         # Block 1 comes back as something else entirely; the rest survive.
         return serialize_lite([
             SubtitleBlock(number, "",
-                          "totally different" if number == 1 else f"line {number}")
+                          "completely unrelated words about nothing"
+                          if number == 1 else f"{SENTENCE} {number}")
             for number in numbers
         ])
 
@@ -109,6 +114,19 @@ def test_a_cue_that_lost_its_meaning_is_flagged(monkeypatch, cfg) -> None:
     assert flag.problem == (
         "block 1: the translation leaves out part of what the source says")
     assert "recovered only 0% of the source wording" in flag.message
+
+
+def test_a_cue_too_short_to_score_fairly_is_not_scored(monkeypatch, cfg) -> None:
+    """A three-word cue that comes back with one synonym scores 33%: not
+    evidence of anything, so lines that short are left alone."""
+    cfg.verify_adequacy = True
+    batches = split_batches(make_blocks(4), 2)  # "line 1" .. "line 4"
+    results = [BatchResult(list(b)) for b in batches]
+    _install_chat(monkeypatch, lambda user, n: serialize_lite([
+        SubtitleBlock(int(line), "", "completely unrelated words")
+        for line in user.splitlines() if line.strip().isdigit()]))
+
+    assert run_async(verify_adequacy(None, batches, results, cfg)) == {}
 
 
 def test_a_block_the_round_trip_dropped_is_not_flagged(monkeypatch, cfg) -> None:
