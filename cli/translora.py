@@ -27,12 +27,11 @@ from core.languages import lang_code
 from core.live_status import Colors, LiveLine, Ticker, restore_terminal
 from core.run_stats import describe_calls
 from core.time_tracker import format_duration
-from core.translator import translate_file_async
+from core.translator import FileReport, translate_file_async
 
 __version__ = "0.5.0"
 
 SUBTITLE_EXTS = {".srt", ".vtt", ".ass", ".ssa", ".sub", ".sbv"}
-
 C = Colors()
 
 
@@ -73,6 +72,9 @@ class RunTotals:
     """Live counts, held by main() so an interrupt can still be summarized."""
     completed: int = 0
     failed: list[tuple[Path, str]] = field(default_factory=list)
+    # Files with lines the run could not put right, and how many lines in all.
+    flagged_files: int = 0
+    flagged_lines: int = 0
 
 
 def _plan_jobs(args, srt_files: list[Path]) -> tuple[list[Job], int, list[str]]:
@@ -203,7 +205,7 @@ async def _translate_all(
         async with semaphore:
             start = time.time()
             try:
-                await translate_file_async(job.input_path, job.output_path, cfg)
+                report = await translate_file_async(job.input_path, job.output_path, cfg)
             except FileTranslationError as e:
                 report_failure(job, str(e))
                 return
@@ -216,6 +218,9 @@ async def _translate_all(
             elapsed = time.time() - start
             file_times.append(elapsed)
             totals.completed += 1
+            if report.still_flagged:
+                totals.flagged_files += 1
+                totals.flagged_lines += len(report.still_flagged)
             # Single-file mode already prints a completion banner from the
             # translator itself — don't duplicate it here.
             if live is not None:
@@ -224,7 +229,7 @@ async def _translate_all(
                     f"  [{C.cyan(f'{done}/{total_jobs}')}] "
                     f"{C.green('✓ DONE')} "
                     f"{C.dim(f'({format_duration(elapsed)})')}: "
-                    f"{job.input_path.name}"
+                    f"{job.input_path.name}{_flagged_note(report)}"
                 )
 
     if ticker:
@@ -236,6 +241,16 @@ async def _translate_all(
             ticker.stop()
         if live is not None:
             live.finalize()
+
+
+def _flagged_note(report: FileReport) -> str:
+    """" — 2 lines still flagged (44, 603)", or nothing for a clean file."""
+    lines = report.still_flagged
+    if not lines:
+        return ""
+    shown = ", ".join(map(str, lines[:8])) + (", …" if len(lines) > 8 else "")
+    return C.yellow(f" — {len(lines)} line{'s' if len(lines) > 1 else ''} "
+                    f"still flagged ({shown})")
 
 
 def _print_header(jobs_count: int, total_files: int, parallel: int,
@@ -266,6 +281,10 @@ def _print_summary(total_elapsed: float, jobs_count: int, totals: RunTotals,
         print(f"  {C.cyan('Dialect')}:    {C.dim(note)}")
     if totals.failed:
         print(f"  {C.red('Failed')}:     {len(totals.failed)}/{jobs_count}")
+    if jobs_count > 1 and totals.flagged_lines:
+        print(f"  {C.yellow('Flagged')}:    {totals.flagged_lines} line(s) in "
+              f"{totals.flagged_files} file(s) the run could not put right "
+              f"{C.dim('(each file names them above)')}")
     if skipped:
         print(f"  {C.yellow('Skipped')}:    {skipped} "
               f"{C.dim('(already existed)')}")

@@ -71,7 +71,7 @@ def test_missing_file_raises_file_translation_error(tmp_path) -> None:
 
 def test_zero_block_file_is_a_failure(tmp_path, cfg) -> None:
     src = tmp_path / "prose.srt"
-    src.write_text("this file has no cues at all\n", encoding="utf-8")
+    src.write_text("this file has no lines at all\n", encoding="utf-8")
     with pytest.raises(FileTranslationError, match="no subtitle blocks"):
         run_async(translate_file_async(src, tmp_path / "out.srt", cfg))
 
@@ -348,10 +348,50 @@ def test_a_retry_that_does_not_help_leaves_the_file_alone(
     cfg.batch_size = 6
     written, _ = _run_tagged(tmp_path, cfg, monkeypatch, _drops_tags(fix=False))
 
-    # One call was spent; the first translation is kept because it is no worse.
+    # The batch retry and two cues alone were spent; the first translation is
+    # kept throughout because nothing that came back was any better.
     assert "<i>" not in written
     assert written.count("سطر") == 6
-    assert cfg.calls.repair == 1
+    assert cfg.calls.repair == 3
+
+
+def test_a_cue_the_batch_retry_could_not_fix_gets_one_chance_alone(
+    tmp_path, cfg, monkeypatch,
+) -> None:
+    """The real run kept ten of eighteen retried batches unchanged: inside a
+    batch the model let the named correction slide. Alone, it follows it."""
+    cfg.batch_size = 6
+    cfg.context_overlap = 0
+    warnings: list[str] = []
+    cfg.warn = warnings.append
+    written, calls = _run_tagged(tmp_path, cfg, monkeypatch, _fixes_only_alone())
+
+    # One batch retry that changed nothing, then two cues alone (the cap for
+    # six cues), both fixed.
+    assert cfg.calls.repair == 3
+    assert written.count("<i>") == 2
+    alone = [user for _, user in calls
+             if user.startswith(FIX_FLAGGED_RULE) and len(parse_lite(user)) == 1]
+    assert len(alone) == 2
+    assert all("the formatting tags" in user for user in alone)
+    assert any("6 flagged line(s) left after the batch retries; re-translating "
+               "2 on their own (cap 2), leaving 4" in w for w in warnings)
+    assert any("Repaired 2/2 flagged line(s) on their own" in w for w in warnings)
+    # The lines worth reading afterwards: raised, fixed, and what is left, by line.
+    assert "  Flags: 6 raised, 2 fixed by the run, 4 still flagged (lines 3, 4, 5, 6)" \
+        in warnings
+    assert "    line 3: formatting tags changed ({\\i1},{\\i0} -> )" in warnings
+    assert not any(w.startswith("    line 2:") for w in warnings)
+
+
+def test_a_clean_file_has_no_flag_line(tmp_path, cfg, monkeypatch) -> None:
+    src = tmp_path / "a.srt"
+    src.write_text(SRT, encoding="utf-8")
+    warnings: list[str] = []
+    cfg.warn = warnings.append
+    _install_recording_chat(monkeypatch, _vocalize_block(0))
+    run_async(translate_file_async(src, tmp_path / "a.ar.srt", cfg))
+    assert not any(w.startswith("  Flags:") for w in warnings)
 
 
 def test_the_repair_is_capped_and_says_what_it_skipped(
@@ -364,10 +404,14 @@ def test_the_repair_is_capped_and_says_what_it_skipped(
     cfg.warn = warnings.append
     _run_tagged(tmp_path, cfg, monkeypatch, _drops_tags())
 
-    assert cfg.calls.repair == 2
     assert any("6 flagged batch(es) across 1 cause(s); repairing 2 (cap 2), "
                "leaving 4" in w for w in warnings)
     assert any("Repaired 2/2 flagged batch(es)" in w for w in warnings)
+    # The four the cap left are then offered the cue pass, under its own cap.
+    assert any("4 flagged line(s) left after the batch retries; re-translating "
+               "2 on their own (cap 2), leaving 2" in w for w in warnings)
+    assert any("Repaired 2/2 flagged line(s) on their own" in w for w in warnings)
+    assert cfg.calls.repair == 4
 
 
 def test_no_fix_flagged_spends_nothing_on_repair(
@@ -397,8 +441,9 @@ def test_a_systematic_failure_buys_more_than_the_five_percent_cap(
     _install_recording_chat(monkeypatch, _drops_tags())
     run_async(translate_file_async(src, tmp_path / "long.ar.srt", cfg))
 
-    # Twenty one-block batches, all flagged on "tags": a quarter of the file.
-    assert cfg.calls.repair == 5
+    # Twenty one-block batches, all flagged on "tags": a quarter of the file,
+    # then two more cues on their own.
+    assert cfg.calls.repair == 5 + 2
     assert any("20 flagged batch(es) across 1 cause(s); repairing 5 (cap 5), "
                "leaving 15" in w for w in warnings)
 
@@ -544,11 +589,12 @@ def test_the_split_phrase_is_one_cause_the_repair_can_budget_for(
     # cause; three batches is under the systematic threshold, so the ordinary
     # floor of two applies and the third is reported rather than dropped.
     warnings, calls = _run_motif(tmp_path, cfg, monkeypatch, _SPLIT)
-    assert cfg.calls.repair == 2
     assert any("3 flagged batch(es) across 1 cause(s); repairing 2 (cap 2), "
                "leaving 1" in w for w in warnings)
+    # The third batch's cue then gets its own retry, so three calls in all.
+    assert cfg.calls.repair == 3
     retries = [user for _, user in calls if user.startswith(FIX_FLAGGED_RULE)]
-    assert len(retries) == 2
+    assert len(retries) == 3
     assert all("the recurring phrase 'crosses the line' is rendered "
                "differently elsewhere in the file; use one wording for it"
                in user for user in retries)
