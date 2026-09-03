@@ -802,17 +802,17 @@ describe('recurringPhrases', () => {
   });
 
   it('drops a phrase only ever seen inside a longer one', () => {
-    expect(recurringPhrases(scattered('deliver it like it is', 3)))
-      .toEqual(['deliver it like it is']);
+    expect(recurringPhrases(scattered('safety briefing session', 3)))
+      .toEqual(['safety briefing session']);
   });
 
   it('keeps a shorter phrase that also stands on its own', () => {
     const phrases = recurringPhrases([
-      ...scattered('deliver it like it is', 3),
-      ...scattered('deliver it', 2, 90),
+      ...scattered('safety briefing session', 3),
+      ...scattered('safety briefing', 2, 90),
     ]);
-    expect(phrases).toContain('deliver it like it is');
-    expect(phrases).toContain('deliver it');
+    expect(phrases).toContain('safety briefing session');
+    expect(phrases).toContain('safety briefing');
   });
 
   it('reads through formatting tags', () => {
@@ -823,10 +823,10 @@ describe('recurringPhrases', () => {
   it('ranks by how much the file spends on the phrase', () => {
     const phrases = recurringPhrases([
       ...scattered('safety briefing', 3),
-      ...scattered('all right', 12, 100),
+      ...scattered('hard hats', 12, 100),
     ]);
-    // 12 x "all right" (9 chars) outweighs 3 x "safety briefing" (17).
-    expect(phrases[0]).toBe('all right');
+    // 12 x "hard hats" (9 chars) outweighs 3 x "safety briefing" (17).
+    expect(phrases[0]).toBe('hard hats');
     expect(phrases).toContain('safety briefing');
   });
 
@@ -850,9 +850,25 @@ describe('recurringPhrases', () => {
   it('mines a shorter phrase only when asked for one', () => {
     // The scan's floor keeps fragments out of a 25-term budget; the
     // consistency check has no budget and would miss an 8-character motif.
-    expect(recurringPhrases(scattered('the line', 5))).toEqual([]);
-    expect(recurringPhrases(scattered('the line', 5), CONSISTENCY_MIN_CHARS))
-      .toEqual(['the line']);
+    expect(recurringPhrases(scattered('dry dock', 5))).toEqual([]);
+    expect(recurringPhrases(scattered('dry dock', 5), CONSISTENCY_MIN_CHARS))
+      .toEqual(['dry dock']);
+  });
+
+  it('treats one word wearing function words as a word, not a phrase', () => {
+    // "the match" comes out of Arabic as one inflected word; pinning it is the
+    // glossary's job, and reading its varied endings as drift was pure noise.
+    expect(recurringPhrases(scattered('the match', 5), CONSISTENCY_MIN_CHARS))
+      .toEqual([]);
+    expect(recurringPhrases(scattered('should be', 5), CONSISTENCY_MIN_CHARS))
+      .toEqual([]);
+  });
+
+  it('lets the best-ranked window speak for a repeated line', () => {
+    // A quoted line longer than PHRASE_MAX_WORDS mines into overlapping
+    // windows that recur in exactly the same cues; one seed says it all.
+    const line = 'more painful than the risk it takes to blossom';
+    expect(recurringPhrases(scattered(line, 3))).toEqual(['more painful than the risk']);
   });
 });
 
@@ -903,9 +919,9 @@ describe('findInconsistentPhrases', () => {
 
   it('sees a phrase the glossary never pinned', () => {
     // The drift check can only ask whether a pinned target was used; this is
-    // the complement — nothing in the glossary mentions "the line".
-    expect(run('the line', ['الخط', 'الحد', 'الحدود', 'الخط الفاصل'])
-      .map((s) => s.phrase)).toEqual(['the line']);
+    // the complement — nothing in the glossary mentions "dry dock".
+    expect(run('dry dock', ['الحوض', 'المرسى', 'الرصيف', 'حوض السفن'])
+      .map((s) => s.phrase)).toEqual(['dry dock']);
   });
 
   it('pairs a cue with its output by number, so a hole costs one cue', () => {
