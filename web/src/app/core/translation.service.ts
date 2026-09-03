@@ -107,6 +107,9 @@ type RunOptions = BatchOptions & ScanOptions;
 interface FlaggedBatch {
   index: number;
   flags: BatchFlag[];
+  /** How many of `flags` came from the detectors; the rest were appended by
+   * the adequacy check or the phrase pass, which no repair re-evaluates. */
+  detectorCount: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -218,6 +221,7 @@ export class TranslationService {
     const flagged: FlaggedBatch[] = results.map((r, index) => ({
       index,
       flags: r ? [...r.flags] : [],
+      detectorCount: r ? r.flags.length : 0,
     }));
 
     if (checkAdequacy) {
@@ -239,9 +243,14 @@ export class TranslationService {
     for (const split of splits) run.notify(phraseSplitMessage(split));
     if (splits.length) flagPhraseSplits(flagged, batches, splits);
 
-    if (fixFlagged) {
-      await this.repairFlagged(
+    let repaired: RepairOutcome = { attempted: new Set(), accepted: new Set() };
+    if (fixFlagged && flagged.some((entry) => entry.flags.length > 0)) {
+      repaired = await this.repairFlagged(
         batches, results, flagged, sourceLang, targetLang, provider,
+        fileContext, contextOverlap, workers, run, cancelSignal,
+      );
+      await this.repairCues(
+        batches, results, flagged, repaired, sourceLang, targetLang, provider,
         fileContext, contextOverlap, workers, run, cancelSignal,
       );
     }
@@ -270,7 +279,8 @@ export class TranslationService {
 
   /** One retry each for the flagged batches, chosen by cause rather than by
    * position and capped at a share of the file. Whatever the cap leaves out is
-   * reported, never dropped quietly. */
+   * reported, never dropped quietly. Returns the batches it tried and the ones
+   * whose retry it kept. */
   private async repairFlagged(
     batches: SubtitleBlock[][],
     results: BatchResult[],
@@ -283,10 +293,11 @@ export class TranslationService {
     workers: number,
     run: RunOptions,
     cancelSignal?: AbortSignal,
-  ): Promise<void> {
+  ): Promise<RepairOutcome> {
+    const outcome: RepairOutcome = { attempted: new Set(), accepted: new Set() };
     // Indexed by batch, so the list is already deduplicated and in block order.
     const targets = flagged.filter((entry) => entry.flags.length > 0);
-    if (!targets.length) return;
+    if (!targets.length) return outcome;
     const causes = groupByCause(targets);
     // The wider ceiling is for a failure that repeats; a scatter of one-offs
     // still gets the ordinary cap.
@@ -311,18 +322,146 @@ export class TranslationService {
         const i = nextIdx++;
         if (i >= chosen.length) return;
         const { index, flags } = chosen[i]!;
-        results[index] = await retryFlaggedBatch(
+        outcome.attempted.add(index);
+        const retried = await retryFlaggedBatch(
           this.chat, batches[index]!, sourceLang, targetLang, provider,
           fileContext, tailBefore(batches, index, contextOverlap),
           results[index]!, flags, run, cancelSignal,
         );
+        if (retried !== results[index]) {
+          results[index] = retried;
+          outcome.accepted.add(index);
+        }
       }
     };
     const workerCount = Math.min(Math.max(1, workers), chosen.length);
     await Promise.all(Array.from({ length: workerCount }, worker));
+    return outcome;
+  }
+
+  /** The narrower second pass: a cue still flagged after the batch retries is
+   * re-issued on its own, its problems named. A correction the model let slide
+   * inside a ten-cue batch is usually followed when the cue is all there is to
+   * do. Same acceptance rule as the batch retry, so it cannot make the file
+   * worse, and capped at the same share of the file's cues. A one-cue batch
+   * the batch pass already retried is not offered the same retry twice. */
+  private async repairCues(
+    batches: SubtitleBlock[][],
+    results: BatchResult[],
+    flagged: FlaggedBatch[],
+    repaired: RepairOutcome,
+    sourceLang: string,
+    targetLang: string,
+    provider: ProviderConfig,
+    fileContext: FileContext,
+    contextOverlap: number,
+    workers: number,
+    run: RunOptions,
+    cancelSignal?: AbortSignal,
+  ): Promise<void> {
+    const where = new Map<number, { index: number; position: number }>();
+    batches.forEach((batch, index) => {
+      batch.forEach((block, position) => where.set(block.number, { index, position }));
+    });
+    const leftover = new Map<number, BatchFlag[]>();
+    for (const flag of survivingFlags(results, flagged, repaired.accepted)) {
+      const spot = where.get(flag.block);
+      if (!spot) continue;
+      if (batches[spot.index]!.length === 1 && repaired.attempted.has(spot.index)) continue;
+      const list = leftover.get(flag.block);
+      if (list) list.push(flag); else leftover.set(flag.block, [flag]);
+    }
+    if (!leftover.size) return;
+    const source = batches.flat();
+    const numbers = [...leftover.keys()].sort((a, b) => a - b);
+    const cap = fixFlaggedCap(source.length);
+    const chosen = numbers.slice(0, cap);
+    if (chosen.length < numbers.length) {
+      run.notify(
+        `${numbers.length} flagged line(s) left after the batch retries; `
+        + `re-translating ${chosen.length} on their own (cap ${cap}), `
+        + `leaving ${numbers.length - chosen.length}`,
+      );
+    }
+    const at = new Map(source.map((block, i) => [block.number, i]));
+    let kept = 0;
+    let nextIdx = 0;
+    const worker = async () => {
+      while (true) {
+        throwIfCancelled(cancelSignal);
+        const i = nextIdx++;
+        if (i >= chosen.length) return;
+        const number = chosen[i]!;
+        const { index, position } = where.get(number)!;
+        const flags = leftover.get(number)!;
+        const start = at.get(number)!;
+        const previous: BatchResult = { blocks: [results[index]!.blocks[position]!], flags };
+        // Its neighbours before it, as the batch would have shown them.
+        const prevTail = contextOverlap > 0
+          ? source.slice(Math.max(0, start - contextOverlap), start)
+          : [];
+        const retried = await retryFlaggedBatch(
+          this.chat, [source[start]!], sourceLang, targetLang, provider,
+          fileContext, prevTail, previous, flags, run, cancelSignal,
+        );
+        if (retried === previous) continue;
+        const result = results[index]!;
+        const blocks = [...result.blocks];
+        blocks[position] = retried.blocks[0]!;
+        results[index] = {
+          blocks,
+          flags: [...result.flags.filter((f) => f.block !== number), ...retried.flags],
+        };
+        const entry = flagged[index]!;
+        entry.flags = [
+          ...entry.flags.slice(0, entry.detectorCount),
+          ...entry.flags.slice(entry.detectorCount).filter((f) => f.block !== number),
+        ];
+        kept++;
+      }
+    };
+    const workerCount = Math.min(Math.max(1, workers), chosen.length);
+    await Promise.all(Array.from({ length: workerCount }, worker));
+    run.notify(`Repaired ${kept}/${chosen.length} flagged line(s) on their own`);
   }
 }
 
+/** Which batches the repair pass tried, and which of those retries it kept. */
+interface RepairOutcome {
+  attempted: Set<number>;
+  accepted: Set<number>;
+}
+
+
+/** What is still wrong with the file. A batch's detector flags are re-read
+ * from whatever text it ends up shipping, so a retry that fixed a leak clears
+ * it; the adequacy and phrase flags were never re-measured, so they stand
+ * unless the batch they belong to was re-translated and the retry kept. */
+function survivingFlags(
+  results: BatchResult[], flagged: FlaggedBatch[], accepted: ReadonlySet<number>,
+): BatchFlag[] {
+  const out: BatchFlag[] = [];
+  results.forEach((result, index) => {
+    out.push(...result.flags);
+    if (accepted.has(index)) return;
+    const entry = flagged[index]!;
+    out.push(...entry.flags.slice(entry.detectorCount));
+  });
+  return dedupeFlags(out);
+}
+
+/** One flag per cue and cause, in cue order. */
+function dedupeFlags(flags: BatchFlag[]): BatchFlag[] {
+  const seen = new Set<string>();
+  const out: BatchFlag[] = [];
+  for (const flag of flags) {
+    const key = `${flag.block}\u0000${flag.cause}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(flag);
+  }
+  return out.sort((a, b) => a.block - b.block);
+}
 
 /** One flag per batch a split phrase landed in, all under the one cause: a
  * phrase the file rendered three ways is a single systematic problem, and
