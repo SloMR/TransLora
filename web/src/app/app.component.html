@@ -1,61 +1,20 @@
-<nav class="nav">
-  <div class="nav-inner">
-    <div class="nav-brand">
-      <img class="nav-icon" src="favicon.svg" alt="" />
-      <span class="nav-logo">TransLora</span>
+<div class="desk">
+  <aside class="bin">
+    <div class="bin-brand">
+      <img class="bin-mark" src="favicon.svg" alt="" />
+      <span class="bin-name">TransLora</span>
+      <div class="run-status" role="status" aria-live="polite">
+        <span class="status-dot" [class.status-dot-live]="phase() === 'running'" [class.status-dot-done]="phase() === 'done'"></span>
+        <span>{{ statusLabel() }}</span>
+      </div>
     </div>
 
-    <button
-      class="nav-theme-toggle"
-      type="button"
-      (click)="toggleTheme()"
-      [title]="themeToggleLabel()"
-      [attr.aria-label]="themeToggleLabel()"
-    >
-      @if (theme() === 'dark') {
-        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="4" />
-          <path d="M12 2v2" />
-          <path d="M12 20v2" />
-          <path d="m4.93 4.93 1.41 1.41" />
-          <path d="m17.66 17.66 1.41 1.41" />
-          <path d="M2 12h2" />
-          <path d="M20 12h2" />
-          <path d="m6.34 17.66-1.41 1.41" />
-          <path d="m19.07 4.93-1.41 1.41" />
-        </svg>
-      } @else {
-        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-        </svg>
-      }
-    </button>
-  </div>
-</nav>
-
-<main class="main">
-  <div class="page-shell">
-    <section class="hero">
-      <div class="hero-copy">
-        <h1 class="hero-title">Translate subtitle files with less clutter.</h1>
-        <p class="hero-text">
-          Upload files, choose the language pair and provider, then export translated subtitles.
-        </p>
-        <p class="hero-meta">
-          @if (files().length > 0) {
-            {{ fileCountLabel() }} &middot; {{ totalBlocks() }} blocks
-          } @else {
-            Supports {{ supportedFormats.join(' , ') }}
-          }
-        </p>
-      </div>
-    </section>
-
-    <section>
-      <div class="workspace-grid" [class.workspace-grid-results]="runner.hasResults()">
+    @if (phase() !== 'empty') {
+      <section class="bin-section bin-files">
         <app-file-intake
-          class="card card-files"
+          class="card-files"
           [files]="files()"
+          [statuses]="runner.fileStatuses()"
           [fileCountLabel]="fileCountLabel()"
           [supportedFormats]="supportedFormats"
           [isTranslating]="runner.isTranslating()"
@@ -64,102 +23,154 @@
           (fileRemoved)="removeFile($event)"
           (errorMessage)="errorMessage.set($event)"
         />
+      </section>
+    }
 
-        <app-provider-form
-          class="card card-settings"
-          [class.card-settings-open]="showAdvanced()"
-          [(sourceLang)]="settings.sourceLang"
-          [(targetLang)]="settings.targetLang"
+    <section class="bin-section">
+      <app-provider-form
+        class="card-settings"
+        [class.card-settings-open]="showAdvanced()"
+        [(sourceLang)]="settings.sourceLang"
+        [(targetLang)]="settings.targetLang"
+        [(apiUrl)]="settings.apiUrl"
+        [(apiKey)]="settings.apiKey"
+        [(modelName)]="settings.modelName"
+        [providerType]="settings.providerType()"
+        [currentPreset]="settings.currentPreset()"
+        [qualityPreset]="settings.qualityPreset()"
+        [apiKeyWarning]="settings.apiKeyWarning()"
+        [targetNormsLabel]="settings.targetNormsLabel()"
+        (providerSelected)="onProviderTypeChange($event)"
+        (qualitySelected)="onQualityPreset($event)"
+        (languagesSwapped)="settings.swapLanguages()"
+      >
+        <app-advanced-panel
+          [(showAdvanced)]="showAdvanced"
           [(apiUrl)]="settings.apiUrl"
           [(apiKey)]="settings.apiKey"
           [(modelName)]="settings.modelName"
+          [(formality)]="settings.formality"
+          [(review)]="settings.review"
+          [(refineAttribution)]="settings.refineAttribution"
+          [(reflow)]="settings.reflow"
+          [(fixFlagged)]="settings.fixFlagged"
+          [(verifyAdequacy)]="settings.verifyAdequacy"
+          [(fullAttribution)]="settings.fullAttribution"
+          [(sendTemperature)]="settings.sendTemperature"
+          [(reviewApiUrl)]="settings.reviewApiUrl"
+          [(reviewApiKey)]="settings.reviewApiKey"
+          [(reviewModel)]="settings.reviewModel"
           [providerType]="settings.providerType()"
           [currentPreset]="settings.currentPreset()"
           [apiKeyWarning]="settings.apiKeyWarning()"
-          [targetNormsLabel]="settings.targetNormsLabel()"
-          (providerSelected)="onProviderTypeChange($event)"
-          (languagesSwapped)="settings.swapLanguages()"
-        >
-          <app-advanced-panel
-            [(showAdvanced)]="showAdvanced"
-            [(apiUrl)]="settings.apiUrl"
-            [(apiKey)]="settings.apiKey"
-            [(modelName)]="settings.modelName"
-            [(formality)]="settings.formality"
-            [(review)]="settings.review"
-            [(refineAttribution)]="settings.refineAttribution"
-            [(reflow)]="settings.reflow"
-            [(fixFlagged)]="settings.fixFlagged"
-            [(verifyAdequacy)]="settings.verifyAdequacy"
-            [(fullAttribution)]="settings.fullAttribution"
-            [(sendTemperature)]="settings.sendTemperature"
-            [(reviewApiUrl)]="settings.reviewApiUrl"
-            [(reviewApiKey)]="settings.reviewApiKey"
-            [(reviewModel)]="settings.reviewModel"
-            [providerType]="settings.providerType()"
-            [currentPreset]="settings.currentPreset()"
-            [apiKeyWarning]="settings.apiKeyWarning()"
-            [targetLang]="settings.targetLang()"
-            [scriptDefaultChars]="settings.scriptDefaultChars()"
-            [batchSize]="settings.batchSize()"
-            [concurrency]="settings.concurrency()"
-            [parallelFiles]="settings.parallelFiles()"
-            [maxRetries]="settings.maxRetries()"
-            [scanBudget]="settings.scanBudget()"
-            [contextOverlap]="settings.contextOverlap()"
-            [maxLineChars]="settings.maxLineChars()"
-            [dialect]="settings.dialect()"
-            [reviewProviderLabel]="settings.reviewProviderLabel()"
-            (numberChanged)="settings.setNumber($event.key, $event.value)"
-            (dialectChanged)="settings.setDialect($event)"
-            (defaultsReset)="settings.resetDefaults()"
-          />
-        </app-provider-form>
+          [targetLang]="settings.targetLang()"
+          [scriptDefaultChars]="settings.scriptDefaultChars()"
+          [batchSize]="settings.batchSize()"
+          [concurrency]="settings.concurrency()"
+          [parallelFiles]="settings.parallelFiles()"
+          [maxRetries]="settings.maxRetries()"
+          [scanBudget]="settings.scanBudget()"
+          [contextOverlap]="settings.contextOverlap()"
+          [maxLineChars]="settings.maxLineChars()"
+          [dialect]="settings.dialect()"
+          [reviewProviderLabel]="settings.reviewProviderLabel()"
+          (numberChanged)="settings.setNumber($event.key, $event.value)"
+          (dialectChanged)="settings.setDialect($event)"
+          (defaultsReset)="settings.resetDefaults()"
+        />
+      </app-provider-form>
 
-        @if (!runner.hasResults()) {
-          <div class="action-card">
-            <p class="action-text">{{ translateHint() }}</p>
-
-            @if (projectionSummary()) {
-              <p class="action-estimate">
-                {{ projectionSummary() }}
-                <span class="action-estimate-note">{{ projectionCaveat() }}</span>
-              </p>
-            }
-
-            <div class="action-controls">
-              <button class="btn-translate" type="button" [disabled]="!canTranslate()" (click)="startTranslation()">
-                {{ translateButtonLabel() }}
-              </button>
-            </div>
-          </div>
-        }
-
-        @if (errorMessage() && !runner.hasResults()) {
-          <p class="error standalone-error" role="alert">{{ errorMessage() }}</p>
-        }
-
-        @if (runner.hasResults()) {
-          <app-run-results
-            class="results-card"
-            [fileStatuses]="runner.fileStatuses()"
-            [doneFiles]="runner.doneFiles()"
-            [failedFiles]="runner.failedFiles()"
-            [inProgressFiles]="runner.inProgressFiles()"
-            [overallProgressPercent]="runner.overallProgressPercent()"
-            [tracker]="runner.tracker"
-            [isTranslating]="runner.isTranslating()"
-            [isCancelling]="runner.isCancelling()"
-            [canRetryFailed]="runner.canRetryFailed()"
-            [isDone]="runner.isDone()"
-            [targetLangCode]="targetLangCode()"
-            (cancelled)="runner.cancel()"
-            (retried)="retryFailed()"
-            (restarted)="reset()"
-            (saved)="markDownloaded($event)"
-          />
-        }
-      </div>
+      @if (errorMessage() && phase() !== 'queued') {
+        <p class="error standalone-error" role="alert">{{ errorMessage() }}</p>
+      }
     </section>
-  </div>
-</main>
+
+    <section class="bin-section bin-theme">
+      <button class="theme-toggle" type="button" (click)="toggleTheme()" [attr.aria-label]="themeToggleLabel()">
+        {{ theme() === 'dark' ? 'Light theme' : 'Dark theme' }}
+      </button>
+    </section>
+  </aside>
+
+  <main class="stage">
+    @switch (phase()) {
+      @case ('empty') {
+        <app-file-intake
+          class="card-files card-files-stage"
+          [files]="files()"
+          [statuses]="runner.fileStatuses()"
+          [fileCountLabel]="fileCountLabel()"
+          [supportedFormats]="supportedFormats"
+          [isTranslating]="false"
+          [isDone]="false"
+          (filesAdded)="onFilesAdded($event)"
+          (fileRemoved)="removeFile($event)"
+          (errorMessage)="errorMessage.set($event)"
+        />
+        <ol class="steps">
+          <li><span><strong>Add subtitle files</strong>Nothing leaves this tab except the text sent to the provider you choose.</span></li>
+          <li><span><strong>Pick a language and a quality level</strong>The estimate updates before you spend anything.</span></li>
+          <li><span><strong>Download the results</strong>The run repairs what it can on its own; anything left is listed under the results, by line number.</span></li>
+        </ol>
+      }
+
+      @case ('queued') {
+        <div class="action-card">
+          <div>
+            <h2 class="stage-title">Ready to translate</h2>
+            <p class="action-text">{{ translateHint() }}</p>
+          </div>
+
+          <div class="receipt">
+            <div class="receipt-row"><span class="receipt-label">Files</span><span class="receipt-value">{{ files().length }}</span></div>
+            <div class="receipt-row"><span class="receipt-label">Lines</span><span class="receipt-value">{{ totalBlocks() }}</span></div>
+            <div class="receipt-row"><span class="receipt-label">Languages</span><span class="receipt-value">{{ settings.sourceLang() || 'Any' }} to {{ settings.targetLang() }}</span></div>
+            <div class="receipt-row"><span class="receipt-label">Quality</span><span class="receipt-value">{{ qualityLabel() }}</span></div>
+            @if (estimate(); as est) {
+              <div class="receipt-row">
+                <span class="receipt-label">Model calls, about</span>
+                <span class="receipt-value">{{ est.calls }}<span class="receipt-detail">{{ est.callsDetail }}</span></span>
+              </div>
+              <div class="receipt-row"><span class="receipt-label">Time, about</span><span class="receipt-value">{{ est.time }}</span></div>
+              <div class="receipt-row"><span class="receipt-label">Parallel requests</span><span class="receipt-value">{{ est.lanes }}</span></div>
+            }
+          </div>
+          @if (estimate()) {
+            <p class="action-estimate-note">{{ projectionCaveat() }}</p>
+          }
+
+          <div class="action-controls">
+            <button class="btn-translate" type="button" [disabled]="!canTranslate()" (click)="startTranslation()">
+              {{ translateButtonLabel() }}
+            </button>
+          </div>
+
+          @if (errorMessage()) {
+            <p class="error standalone-error" role="alert">{{ errorMessage() }}</p>
+          }
+        </div>
+      }
+
+      @default {
+        <app-run-results
+          class="results-card"
+          [fileStatuses]="runner.fileStatuses()"
+          [doneFiles]="runner.doneFiles()"
+          [failedFiles]="runner.failedFiles()"
+          [inProgressFiles]="runner.inProgressFiles()"
+          [overallProgressPercent]="runner.overallProgressPercent()"
+          [tracker]="runner.tracker"
+          [isTranslating]="runner.isTranslating()"
+          [isCancelling]="runner.isCancelling()"
+          [canRetryFailed]="runner.canRetryFailed()"
+          [isDone]="runner.isDone()"
+          [targetLangCode]="targetLangCode()"
+          (cancelled)="runner.cancel()"
+          (retried)="retryFailed()"
+          (restarted)="reset()"
+          (saved)="markDownloaded($event)"
+        />
+      }
+    }
+  </main>
+</div>

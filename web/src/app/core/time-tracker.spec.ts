@@ -4,8 +4,7 @@ import { TimeTracker } from './time-tracker';
 
 interface FakeFile {
   timeMs?: number;
-  currentBatch?: number;
-  totalBatches?: number;
+  progress?: { percent: number };
 }
 
 function setup(initial: {
@@ -87,11 +86,11 @@ describe('TimeTracker', () => {
 
     it('produces an estimate for a single in-progress file once batches report', () => {
       const { tracker, inProgress, pending } = setup({
-        inProgress: [{ currentBatch: 1, totalBatches: 10 }],
+        inProgress: [{ progress: { percent: 10 } }],
         pending: 0,
       });
       pending.set(0);
-      inProgress.set([{ currentBatch: 1, totalBatches: 10 }]);
+      inProgress.set([{ progress: { percent: 10 } }]);
 
       tracker.begin();
       nowValue += 10_000; // 10s elapsed to finish 1/10 of a file

@@ -5,10 +5,11 @@ import { SubtitleDocument } from './core/subtitle-formats/types';
 import {
   ProviderConfig,
   QualityOptions,
+  ReviewResult,
   TranslationProgress,
 } from './core/translation.service';
 
-export interface PendingCall {
+interface PendingCall {
   doc: SubtitleDocument;
   provider: ProviderConfig;
   cancelSignal?: AbortSignal;
@@ -16,6 +17,10 @@ export interface PendingCall {
   quality?: QualityOptions;
   /** Hands the run's call breakdown back, the way the real service does. */
   reportStats: (stats: RunStats) => void;
+  /** Hands the finished cues and flags back, the way the real service does. */
+  reportReview: (review: ReviewResult) => void;
+  /** Says something mid-run, the way the real service does. */
+  notify: (message: string) => void;
   resolve: (content: string) => void;
   reject: (err: unknown) => void;
 }
@@ -52,6 +57,8 @@ export class StubTranslationService {
         onProgress,
         quality,
         reportStats: (stats) => quality?.onStats?.(stats),
+        reportReview: (review) => quality?.onReview?.(review),
+        notify: (message) => quality?.onNotice?.(message),
         resolve: (content) => {
           settle();
           resolve(content);

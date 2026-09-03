@@ -22,6 +22,7 @@ import {
 import {
   ProviderConfig,
   QualityOptions,
+  ReviewResult,
   TranslationCancelledError,
   TranslationProgress,
   TranslationService,
@@ -198,8 +199,15 @@ describe('TranslationService', () => {
     expect(assembled().map((b) => b.number)).toEqual([1, 2, 3, 4]);
     // Timestamps are reattached from the source, never from the model.
     expect(assembled()[0]!.timestamp).toBe(doc.blocks[0]!.timestamp);
-    expect(progress[0]).toEqual({ currentBatch: 0, totalBatches: 2 });
-    expect(progress[progress.length - 1]).toEqual({ currentBatch: 2, totalBatches: 2 });
+    // The bar covers every step: the scan already moved it, the batches count
+    // themselves, and 100 is reached only when the file is written.
+    const batchStage = progress.filter((p) => p.stage === 'batches');
+    expect(batchStage[0]).toMatchObject({ done: 0, total: 2 });
+    expect(progress.at(-1)).toMatchObject({ done: 2, total: 2, percent: 100 });
+    expect(batchStage[0]!.percent).toBeGreaterThan(0);
+    for (let i = 1; i < progress.length; i++) {
+      expect(progress[i]!.percent).toBeGreaterThanOrEqual(progress[i - 1]!.percent);
+    }
   });
 
   it('accepts a fenced reply wrapped in a <think> block', async () => {
@@ -987,6 +995,28 @@ describe('TranslationService', () => {
       expect(assembled().map((b) => b.number)).toEqual(pairs.map((_, i) => i + 1));
       return { texts: assembled().map((b) => b.text), notices };
     }
+
+    it('hands the reviewer the cues as they will ship, with the flags that survived', async () => {
+      const { doc } = fakeDoc(2);
+      doc.blocks[0]!.text = '{\\i1}Hello there{\\i0}';
+      doc.blocks[1]!.text = 'A <i>b</i> c';
+      let review: ReviewResult | undefined;
+      const run = translate(doc, {
+        batchSize: 2,
+        targetLang: 'Arabic',
+        quality: { fixFlagged: false, onReview: (r) => { review = r; } },
+      });
+      await flushScan();
+      (await nextRequest('the batch')).flush(chat('1\nمرحبا بك\n\n2\nس ص ع'));
+      await run;
+
+      // The repaired text, not the model's: the italics are back on cue 1.
+      expect(review!.blocks.map((b) => b.text)).toEqual(['{\\i1}مرحبا بك{\\i0}', 'س ص ع']);
+      // Only the unrepairable change is still a flag, and it names its cue.
+      expect(review!.flags.map((f) => [f.block, f.message])).toEqual([
+        [2, 'Block 2: formatting tags changed (<i>,</i> -> )'],
+      ]);
+    });
 
     it('restores a dropped italic pair without a warning', async () => {
       const { texts, notices } = await finalize([['{\\i1}Hello there{\\i0}', 'مرحبا بك']]);

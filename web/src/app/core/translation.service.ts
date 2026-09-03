@@ -48,9 +48,11 @@ import {
   CallKind,
   RunStats,
   emptyCallCounts,
+  adequacySampleSize,
   fixFlaggedCap,
   systematicRepairCap,
 } from './run-stats';
+import { ProgressMeter, RunProgress } from './run-progress';
 import { ScanOptions, extractFileContext, refineSceneAttribution } from './context-scan';
 import { SubtitleBlock, splitBatches } from './srt-parser';
 import { SubtitleDocument } from './subtitle-formats/types';
@@ -60,9 +62,19 @@ export { TranslationCancelledError } from './chat-client';
 export type { ProviderConfig } from './chat-client';
 export type { Formality };
 
-export interface TranslationProgress {
-  currentBatch: number;
-  totalBatches: number;
+/** The file's progress, every step included: see `RunProgress`. */
+export type TranslationProgress = RunProgress;
+
+/** The translation as it will ship, cue by cue, and every flag that survived
+ * the run — the detectors' verdict on the final text, plus the file-level and
+ * adequacy flags no repair re-checks. */
+export interface ReviewResult {
+  blocks: SubtitleBlock[];
+  /** What is still wrong with the shipped text. */
+  flags: BatchFlag[];
+  /** Every flag the run raised, repaired or not, so the host can say what was
+   * fixed as well as what was left. One entry per cue and cause. */
+  raised: BatchFlag[];
 }
 
 export interface QualityOptions {
@@ -82,7 +94,7 @@ export interface QualityOptions {
   maxLineChars?: number;
   /** 'auto' leaves the register to the model. */
   formality?: Formality;
-  /** Free text, e.g. "Egyptian Arabic"; also steers the prepass register. */
+  /** Free text, e.g. "Saudi Arabic"; also steers the prepass register. */
   dialect?: string;
   /** false = never send `temperature`, for an endpoint known to reject it.
    * Otherwise the first 400 that names it teaches the run the same thing. */
@@ -98,6 +110,8 @@ export interface QualityOptions {
   onNotice?: (message: string) => void;
   /** What the finished run cost: LLM calls by pass, blocks, elapsed time. */
   onStats?: (stats: RunStats) => void;
+  /** The finished cues and their surviving flags, for a review view. */
+  onReview?: (review: ReviewResult) => void;
 }
 
 /** Everything the run carries into a batch or a prepass call. */
@@ -136,6 +150,7 @@ export class TranslationService {
 
     const startedAt = performance.now();
     const calls = emptyCallCounts();
+    const meter = new ProgressMeter(onProgress);
     const contextOverlap = quality.contextOverlap ?? DEFAULT_CONTEXT_OVERLAP;
     const scanBudget = quality.scanBudget ?? DEFAULT_SCAN_BUDGET;
     const refineAttribution = quality.refineAttribution ?? DEFAULT_REFINE_ATTRIBUTION;
@@ -148,7 +163,7 @@ export class TranslationService {
         ? quality.timeoutMs
         : REQUEST_TIMEOUT_SECS * 1000,
       notify: onceEach(quality.onNotice),
-      count: (kind: CallKind) => { calls[kind]++; },
+      count: (kind: CallKind) => { calls[kind]++; meter.count(kind); },
       reflow: quality.reflow ?? DEFAULT_REFLOW,
       reviewProvider: reviewProviderFor(provider, quality),
       norms: effectiveNorms(targetLang, quality.maxLineChars ?? 0),
@@ -158,6 +173,15 @@ export class TranslationService {
     };
     // A zero or NaN concurrency would start no workers and "succeed" untranslated.
     const workers = Math.max(1, Math.floor(concurrency) || DEFAULT_CONCURRENCY);
+
+    // The bar's plan, priced like the pre-run estimate and revised as the run
+    // learns: how many scenes need a speaker call, how many batches a review,
+    // how many retries the flags earn. Nothing here is a promise, only a pace.
+    const batchCount = Math.ceil(doc.blocks.length / Math.max(1, batchSize));
+    meter.plan('prepass', 1 + (refineAttribution ? Math.ceil(batchCount / 4) : 0));
+    meter.plan('batches', batchCount * (review ? 2 : 1));
+    if (checkAdequacy) meter.plan('checking', adequacySampleSize(batchCount));
+    if (fixFlagged) meter.plan('repairing', fixFlaggedCap(batchCount));
 
     const fileContext = await extractFileContext(
       this.chat, doc.blocks, sourceLang, targetLang, provider, scanBudget, run,
@@ -172,13 +196,15 @@ export class TranslationService {
 
     const batches = splitBatches(doc.blocks, batchSize);
     const results: BatchResult[] = new Array(batches.length);
+    // Now the glossary is known, so is which batches earn a review call.
+    const reviewed = review ? batches.filter((b) => fileContext.hasCorrections(b)).length : 0;
+    meter.plan('batches', batches.length + reviewed);
+    meter.batches(0, batches.length);
+    meter.begin('batches');
 
     let nextIdx = 0;
     let completed = 0;
-    const emit = () => onProgress?.({
-      currentBatch: completed,
-      totalBatches: batches.length,
-    });
+    const emit = () => meter.batches(completed, batches.length);
 
     // Cancel plus first fatal failure, so siblings stop paying for discarded work.
     const stop = new AbortController();
@@ -225,6 +251,7 @@ export class TranslationService {
     }));
 
     if (checkAdequacy) {
+      meter.begin('checking');
       const extra = await verifyAdequacy(
         this.chat, batches, results.map((r) => r.blocks), sourceLang, provider,
         workers, run, cancelSignal,
@@ -243,16 +270,22 @@ export class TranslationService {
     for (const split of splits) run.notify(phraseSplitMessage(split));
     if (splits.length) flagPhraseSplits(flagged, batches, splits);
 
+    // Snapshot before any repair: the repairs below rewrite what survives.
+    const raised = dedupeFlags(flagged.flatMap((entry) => entry.flags));
     let repaired: RepairOutcome = { attempted: new Set(), accepted: new Set() };
     if (fixFlagged && flagged.some((entry) => entry.flags.length > 0)) {
+      meter.begin('repairing');
       repaired = await this.repairFlagged(
         batches, results, flagged, sourceLang, targetLang, provider,
-        fileContext, contextOverlap, workers, run, cancelSignal,
+        fileContext, contextOverlap, workers, run, cancelSignal, meter,
       );
       await this.repairCues(
         batches, results, flagged, repaired, sourceLang, targetLang, provider,
-        fileContext, contextOverlap, workers, run, cancelSignal,
+        fileContext, contextOverlap, workers, run, cancelSignal, meter,
       );
+    } else {
+      // Nothing to repair: the bar should not wait for calls that never come.
+      meter.plan('repairing', 0);
     }
 
     const translated: SubtitleBlock[] = [];
@@ -274,6 +307,12 @@ export class TranslationService {
     const finished = normalizeDiacritics(translated, run.norms.script);
     const drift = detectVariantDrift(finished, run.norms.script, run.dialect);
     if (drift) run.notify(variantDriftMessage(drift));
+    quality.onReview?.({
+      blocks: finished,
+      flags: survivingFlags(results, flagged, repaired.accepted),
+      raised,
+    });
+    meter.finish();
     return doc.rebuild(finished);
   }
 
@@ -292,7 +331,8 @@ export class TranslationService {
     contextOverlap: number,
     workers: number,
     run: RunOptions,
-    cancelSignal?: AbortSignal,
+    cancelSignal: AbortSignal | undefined,
+    meter: ProgressMeter,
   ): Promise<RepairOutcome> {
     const outcome: RepairOutcome = { attempted: new Set(), accepted: new Set() };
     // Indexed by batch, so the list is already deduplicated and in block order.
@@ -307,6 +347,7 @@ export class TranslationService {
       ? systematicRepairCap(batches.length)
       : fixFlaggedCap(batches.length);
     const chosen = chooseByCause(causes, cap);
+    meter.plan('repairing', chosen.length);
     if (targets.length > chosen.length) {
       run.notify(
         `${targets.length} flagged batch(es) across ${causes.size} cause(s); `
@@ -357,7 +398,8 @@ export class TranslationService {
     contextOverlap: number,
     workers: number,
     run: RunOptions,
-    cancelSignal?: AbortSignal,
+    cancelSignal: AbortSignal | undefined,
+    meter: ProgressMeter,
   ): Promise<void> {
     const where = new Map<number, { index: number; position: number }>();
     batches.forEach((batch, index) => {
@@ -376,6 +418,7 @@ export class TranslationService {
     const numbers = [...leftover.keys()].sort((a, b) => a - b);
     const cap = fixFlaggedCap(source.length);
     const chosen = numbers.slice(0, cap);
+    meter.plan('repairing', repaired.attempted.size + chosen.length);
     if (chosen.length < numbers.length) {
       run.notify(
         `${numbers.length} flagged line(s) left after the batch retries; `

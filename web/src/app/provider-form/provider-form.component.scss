@@ -4,94 +4,126 @@
 @include controls.fields;
 @include controls.icon-buttons;
 
+// From and To stack: a narrow bin cannot seat two selects and a button side by
+// side without truncating language names. The swap sits on a rule between
+// them, turned to point the way the values move.
 .lang-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  gap: 0.65rem;
-  margin-top: 0.85rem;
-  align-items: end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
 }
 
 .lang-col {
+  display: grid;
+  gap: 0.3rem;
   min-width: 0;
 }
 
-.lang-swap-button {
-  margin-bottom: 0.05rem;
-}
-
-.lang-hints {
+.lang-swap {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  gap: 0 0.65rem;
-  margin-top: 0.1rem;
+  align-items: center;
+  gap: 0.6rem;
+}
 
-  .field-hint {
-    margin-top: 0;
-  }
+.lang-swap-rule {
+  height: 1px;
+  background: var(--line);
+}
+
+.lang-swap-button svg {
+  transform: rotate(90deg);
 }
 
 .script-note {
   display: block;
-  margin-top: 0.2rem;
-  color: var(--text-secondary);
+  color: var(--ink-soft);
   font-variant-numeric: tabular-nums;
-}
-
-.lang-hints-spacer {
-  width: 2.2rem;
 }
 
 .divider {
   height: 1px;
-  margin: 0.85rem 0;
-  background: linear-gradient(90deg, transparent, var(--border-strong), transparent);
+  margin: 0.9rem 0;
+  background: var(--line);
+}
+
+// One control, three positions: the quality level is a single choice, so it
+// looks like one.
+.segmented {
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--panel-raised);
+  overflow: hidden;
+}
+
+.segment {
+  min-height: 2.1rem;
+  padding: 0.35rem 0.6rem;
+  border-left: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  font-weight: 600;
+
+  &:first-child {
+    border-left: 0;
+  }
+
+  &:hover {
+    color: var(--ink);
+    background: var(--panel);
+  }
+}
+
+.segment-active,
+.segment-active:hover {
+  background: var(--action);
+  color: var(--action-text);
+}
+
+// "Custom" names a state the knobs are in, not a choice; it shows, it cannot be pressed.
+.segment-static {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
 }
 
 .provider-pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
 
 .pill {
-  min-height: 2.2rem;
-  padding: 0.52rem 0.88rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  background: var(--surface-muted);
-  color: var(--text-secondary);
+  min-height: 1.9rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--panel-raised);
+  color: var(--ink-soft);
   font-size: 0.8rem;
-  font-weight: 700;
-  transition:
-    transform 0.18s ease,
-    border-color 0.18s ease,
-    background-color 0.18s ease,
-    color 0.18s ease;
+  font-weight: 600;
 
   &:hover {
-    transform: translateY(-1px);
-    border-color: var(--border-accent);
-    color: var(--color-primary-strong);
+    border-color: var(--ink-soft);
+    color: var(--ink);
   }
 }
 
-.pill-active {
-  border-color: var(--border-accent);
-  background: var(--surface-highlight);
-  color: var(--color-primary-strong);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+.pill-active,
+.pill-active:hover {
+  border-color: var(--action);
+  background: var(--action);
+  color: var(--action-text);
 }
 
-@media (max-width: 720px) {
-  .lang-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .lang-swap-button {
-    justify-self: start;
-    margin: 0;
-  }
+.field + .field {
+  margin-top: 0.75rem;
 }
 
 @include controls.narrow;

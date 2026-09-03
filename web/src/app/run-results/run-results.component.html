@@ -5,24 +5,27 @@
         <span class="summary-dot pulsing"></span>
         <span class="summary-title">Translation in progress</span>
       </div>
-    } @else {
+    } @else if (outcome() === 'complete') {
       <div class="summary-header">
         <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10" stroke="var(--color-success)" fill="var(--color-success-soft)" />
-          <polyline points="9 12 11.5 14.5 16 9.5" stroke="var(--color-success)" />
+          <circle cx="12" cy="12" r="10" stroke="var(--ok)" fill="var(--ok-soft)" />
+          <polyline points="9 12 11.5 14.5 16 9.5" stroke="var(--ok)" />
         </svg>
-        <span class="summary-title">Translation complete</span>
+        <span class="summary-title">{{ outcomeTitle() }}</span>
+      </div>
+    } @else {
+      <div class="summary-header summary-header-failed">
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10" stroke="var(--danger)" fill="var(--danger-soft)" />
+          <line x1="15" y1="9" x2="9" y2="15" stroke="var(--danger)" />
+          <line x1="9" y1="9" x2="15" y2="15" stroke="var(--danger)" />
+        </svg>
+        <span class="summary-title">{{ outcomeTitle() }}</span>
       </div>
     }
 
     <p class="summary-meta">
-      {{ doneFiles().length }} done
-      @if (failedFiles().length > 0) {
-        &middot; {{ failedFiles().length }} failed
-      }
-      @if (isTranslating()) {
-        &middot; {{ inProgressFiles().length }} in progress
-      }
+      {{ doneFiles().length }} done@if (failedFiles().length > 0) {, {{ failedFiles().length }} failed}@if (isTranslating()) {, {{ inProgressFiles().length }} in progress}@if (stageLabel()) {, {{ stageLabel() }}}@if (flaggedCueCount() > 0) {, <span class="summary-flagged">{{ flaggedCueCount() }} line{{ flaggedCueCount() === 1 ? '' : 's' }} still flagged</span>}
     </p>
   </div>
 
@@ -33,14 +36,14 @@
       </svg>
       {{ isCancelling() ? 'Cancelling...' : 'Cancel' }}
     </button>
-  } @else if (doneFiles().length > 1) {
-    <button class="btn-download-all" type="button" (click)="downloadAll()" [disabled]="isZipping()">
+  } @else if (doneFiles().length > 0) {
+    <button class="btn-download-all" type="button" (click)="download()" [disabled]="isZipping()">
       <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
         <polyline points="7 10 12 15 17 10" />
         <line x1="12" y1="15" x2="12" y2="3" />
       </svg>
-      {{ isZipping() ? 'Zipping...' : 'Download all' }}
+      {{ downloadLabel() }}
     </button>
   }
 </div>
@@ -77,63 +80,36 @@
 
 @if (callTotal() > 0) {
   <p class="run-throughput">
-    {{ callTotal() }} LLM calls ({{ callBreakdown() }}) &middot; {{ throughputLabel() }} blocks/s@if (dialectLabel()) { &middot; {{ dialectLabel() }}}
+    {{ callTotal() }} model calls ({{ callBreakdown() }}), {{ throughputLabel() }} lines a second@if (dialectLabel()) {, {{ dialectLabel() }}}
   </p>
 }
 
-@if (inProgressFiles().length > 0) {
-  <div class="results-section">
-    <div class="section-label">Translating now</div>
-    @for (f of inProgressFiles(); track f.name) {
-      <div class="progress-row">
-        <span class="row-dot pulsing"></span>
-        <span class="row-name">{{ f.name }}</span>
-        <span class="row-batch">{{ f.currentBatch ?? 0 }} / {{ f.totalBatches ?? '?' }}</span>
-        <div
-          class="row-bar"
-          role="progressbar"
-          [attr.aria-label]="f.name"
-          aria-valuemin="0"
-          aria-valuemax="100"
-          [attr.aria-valuenow]="fileProgressPercent(f)"
-          [attr.aria-valuetext]="(f.currentBatch ?? 0) + ' of ' + (f.totalBatches ?? 0) + ' batches'"
-        >
-          <div class="row-bar-fill" [style.width.%]="fileProgressPercent(f)"></div>
-        </div>
-      </div>
+@if (!isTranslating() && (repairedCount() > 0 || flaggedCueCount() > 0)) {
+  <section class="repairs" aria-label="What the run repaired">
+    @if (repairedCount() > 0) {
+      <p class="repairs-line repairs-fixed">
+        <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+        <span>{{ repairedCount() }} line{{ repairedCount() === 1 ? '' : 's' }} repaired by the run<span class="repairs-detail"> — {{ repairedBreakdown() }}</span></span>
+      </p>
     }
-  </div>
-}
-
-@if (doneFiles().length > 0) {
-  <div class="results-section">
-    <div class="section-header">
-      <div class="section-label">Completed</div>
-    </div>
-    <ul
-      class="scroll-list"
-      role="list"
-      tabindex="0"
-      [attr.aria-label]="'Completed files, ' + doneFiles().length"
-    >
-      @for (f of doneFiles(); track f.name) {
-        <li class="result-item">
-          <svg aria-hidden="true" class="result-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-          <span class="result-name">{{ f.outputName }}</span>
-          <span class="result-meta">{{ f.blockCount }} blocks &middot; {{ tracker().formatMs(f.timeMs ?? 0) }}</span>
-          <button class="result-dl" type="button" (click)="downloadFile(f)" title="Download file" [attr.aria-label]="'Download ' + f.outputName">
-            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-          </button>
-        </li>
-      }
-    </ul>
-  </div>
+    @if (flaggedCueCount() > 0) {
+      <p class="repairs-line repairs-left">
+        <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /><path d="M12 9v4" /><path d="M12 17h.01" />
+        </svg>
+        <span>{{ flaggedCueCount() }} line{{ flaggedCueCount() === 1 ? '' : 's' }} still flagged<span class="repairs-detail"> — worth a look in the downloaded file</span></span>
+      </p>
+      <ul class="repairs-list">
+        @for (item of leftFlagged(); track item.key) {
+          <li><span class="repairs-where">{{ item.where }}</span><span class="repairs-reason">{{ item.reason }}</span></li>
+        }
+      </ul>
+    } @else {
+      <p class="repairs-line repairs-clean">Nothing left flagged.</p>
+    }
+  </section>
 }
 
 @if (failedFiles().length > 0) {

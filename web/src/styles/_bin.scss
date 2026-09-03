@@ -1,0 +1,102 @@
+// The bin: the one column on the left that holds the brand, the run's status,
+// the queued files and every setting. Sections are separated by rules, not
+// boxed, so the column reads as one instrument panel.
+.bin {
+  display: grid;
+  align-content: start;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--panel);
+}
+
+.bin-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.85rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.bin-mark {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 4px;
+}
+
+.bin-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+// What the run is doing, on its own line so it never fights the brand.
+.run-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+
+.status-dot-live {
+  background: var(--select);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.status-dot-done {
+  background: var(--ok);
+}
+
+.bin-section {
+  padding: 0.9rem 0.9rem 1rem;
+  border-bottom: 1px solid var(--line);
+
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  50% {
+    transform: scale(1.3);
+    opacity: 0.7;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot-live {
+    animation: none;
+  }
+}
+
+.theme-toggle {
+  width: 100%;
+  min-height: 2rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--panel-raised);
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+  font-weight: 600;
+
+  &:hover {
+    border-color: var(--ink-soft);
+    color: var(--ink);
+  }
+}

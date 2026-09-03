@@ -1,6 +1,7 @@
 import { Injectable, Signal, computed, inject, signal } from '@angular/core';
 import { errMessage } from '../error-message';
-import { FileStatus, UploadedFile } from './file-types';
+import { buildReview } from './file-review';
+import { FileReview, FileStatus, UploadedFile } from './file-types';
 import { RunStats } from './run-stats';
 import { TimeTracker } from './time-tracker';
 import {
@@ -70,8 +71,8 @@ export class TranslationRunnerService {
     for (const f of all) {
       if (f.status === 'done' || f.status === 'failed') {
         sum += 1;
-      } else if (f.status === 'translating' && f.totalBatches) {
-        sum += (f.currentBatch ?? 0) / f.totalBatches;
+      } else if (f.status === 'translating' && f.progress) {
+        sum += f.progress.percent / 100;
       }
     }
     return Math.round((sum / all.length) * 100);
@@ -134,10 +135,10 @@ export class TranslationRunnerService {
         return {
           ...s,
           status: 'pending' as const,
-          currentBatch: undefined,
-          totalBatches: undefined,
+          progress: undefined,
           error: undefined,
           timeMs: undefined,
+          review: undefined,
         };
       })
     );
@@ -234,8 +235,7 @@ export class TranslationRunnerService {
                       ...s,
                       status: 'failed' as const,
                       error: 'Cancelled',
-                      currentBatch: undefined,
-                      totalBatches: undefined,
+                      progress: undefined,
                     }
                   : s,
               ),
@@ -256,10 +256,14 @@ export class TranslationRunnerService {
     const fileStart = performance.now();
 
     if (cancelSignal.aborted || this.cancelRequested) return;
-    this.updateFileStatus(idx, { status: 'translating' });
+    this.updateFileStatus(idx, {
+      status: 'translating',
+      progress: { stage: 'prepass', done: 0, total: 0, percent: 0 },
+    });
 
     const request = this.source!.request();
     let stats: RunStats | undefined;
+    let review: FileReview | undefined;
 
     try {
       const content = await this.translationService.translateDocument(
@@ -272,14 +276,15 @@ export class TranslationRunnerService {
         request.maxRetries,
         (progress) => {
           if (cancelSignal.aborted || this.cancelRequested) return;
-          this.updateFileStatus(idx, {
-            currentBatch: progress.currentBatch,
-            totalBatches: progress.totalBatches,
-          });
+          this.updateFileStatus(idx, { progress });
         },
         cancelSignal,
-        // The run reports its own call breakdown; the queue only carries it.
-        { ...request.quality, onStats: (s) => { stats = s; } },
+        // The run reports its own accounting; the queue only carries it.
+        {
+          ...request.quality,
+          onStats: (s) => { stats = s; },
+          onReview: (result) => { review = buildReview(f.doc, result); },
+        },
       );
 
       if (cancelSignal.aborted || this.cancelRequested) return;
@@ -287,6 +292,7 @@ export class TranslationRunnerService {
         status: 'done',
         content,
         stats,
+        review,
         timeMs: performance.now() - fileStart,
       });
     } catch (err) {

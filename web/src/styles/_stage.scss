@@ -1,0 +1,148 @@
+// The stage: whichever block the run's phase calls for — the drop zone, the
+// ready card, or the results.
+
+// ---- Empty: the steps beside the drop zone ---------------------------------------
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.4rem;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+
+  li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.7rem;
+    font-size: 0.86rem;
+    line-height: 1.45;
+    color: var(--ink-soft);
+
+    strong {
+      display: block;
+      color: var(--ink);
+    }
+
+    &::before {
+      content: counter(step);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.55rem;
+      height: 1.55rem;
+      border: 1px solid var(--line-strong);
+      border-radius: 50%;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--ink);
+    }
+  }
+}
+
+// ---- Queued: the ready card -------------------------------------------------
+.action-card {
+  display: grid;
+  gap: 1.1rem;
+  padding: 1.1rem 1.2rem 1.2rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--panel);
+}
+
+.stage-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.action-text {
+  margin: 0.25rem 0 0;
+  line-height: 1.45;
+}
+
+// Facts and the estimate read as one receipt: a rule between each line, the
+// value on the right in tabular figures.
+.receipt {
+  display: grid;
+  border-top: 1px solid var(--line);
+}
+
+.receipt-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.88rem;
+}
+
+.receipt-label {
+  color: var(--ink-soft);
+}
+
+.receipt-value {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.receipt-detail {
+  display: block;
+  font-weight: 400;
+  font-size: 0.76rem;
+  color: var(--ink-mute);
+}
+
+.action-estimate-note {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--ink-mute);
+}
+
+.btn-translate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.6rem;
+  padding: 0.6rem 1.3rem;
+  border-radius: var(--radius-control);
+  background: var(--action);
+  color: var(--action-text);
+  font-size: 0.92rem;
+  font-weight: 700;
+  transition: background-color 0.12s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--action-hover);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    background: var(--panel-sunken);
+    color: var(--ink-mute);
+  }
+}
+
+.action-controls {
+  margin-top: 0;
+}
+
+.standalone-error {
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-control);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+@media (max-width: 860px) {
+  .steps {
+    grid-template-columns: 1fr;
+    gap: 0.9rem;
+  }
+}

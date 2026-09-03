@@ -15,9 +15,15 @@ import { ProviderPreset } from '../core/providers';
 import { type Formality } from '../core/translation.service';
 import { DIALECT_MAX_LEN, NumericSetting } from '../run-settings';
 
+// In plain words: "register" and "formal" meant nothing to a first user.
+const FORMALITY_LABELS: Record<string, string> = {
+  auto: 'Same tone as the original',
+  formal: 'Polite throughout',
+  informal: 'Casual throughout',
+};
 const FORMALITY_OPTIONS = FORMALITY_CHOICES.map((value) => ({
   value,
-  label: `${value[0]!.toUpperCase()}${value.slice(1)}`,
+  label: FORMALITY_LABELS[value] ?? value,
 }));
 
 // The advanced disclosure: endpoint overrides, request limits and the quality

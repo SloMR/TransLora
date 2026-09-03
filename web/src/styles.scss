@@ -1,46 +1,93 @@
-// Self-hosted: a page load makes no third-party request. Licence: public/fonts/OFL.txt.
+// Self-hosted: a page load makes no third-party request. Licence and the reason
+// for each face: public/fonts/OFL.txt.
 @font-face {
-  font-family: 'Plus Jakarta Sans';
-  font-style: normal;
-  font-weight: 200 800;
+  font-family: 'Atkinson Hyperlegible';
+  font-style: italic;
+  font-weight: 400;
   font-display: swap;
-  src: url('/fonts/plus-jakarta-sans-latin.woff2') format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
-    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
-    U+2212, U+2215, U+FEFF, U+FFFD;
+  src: url('/fonts/atkinson-hyperlegible-400-italic-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
 @font-face {
-  font-family: 'Plus Jakarta Sans';
-  font-style: normal;
-  font-weight: 200 800;
+  font-family: 'Atkinson Hyperlegible';
+  font-style: italic;
+  font-weight: 400;
   font-display: swap;
-  src: url('/fonts/plus-jakarta-sans-latin-ext.woff2') format('woff2');
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
-    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
-    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  src: url('/fonts/atkinson-hyperlegible-400-italic-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 @font-face {
-  font-family: 'Sora';
+  font-family: 'Atkinson Hyperlegible';
   font-style: normal;
-  font-weight: 100 800;
+  font-weight: 400;
   font-display: swap;
-  src: url('/fonts/sora-latin.woff2') format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
-    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
-    U+2212, U+2215, U+FEFF, U+FFFD;
+  src: url('/fonts/atkinson-hyperlegible-400-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
 @font-face {
-  font-family: 'Sora';
+  font-family: 'Atkinson Hyperlegible';
   font-style: normal;
-  font-weight: 100 800;
+  font-weight: 400;
   font-display: swap;
-  src: url('/fonts/sora-latin-ext.woff2') format('woff2');
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
-    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
-    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  src: url('/fonts/atkinson-hyperlegible-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Atkinson Hyperlegible';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/atkinson-hyperlegible-700-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Atkinson Hyperlegible';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/atkinson-hyperlegible-700-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Courier Prime';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/courier-prime-400-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Courier Prime';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/courier-prime-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Courier Prime';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/courier-prime-700-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Courier Prime';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/courier-prime-700-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 *,
@@ -49,114 +96,67 @@
   box-sizing: border-box;
 }
 
+// The desk is quiet studio grey; the one dark, saturated object on it is the
+// frame, which keeps its own black and subtitle yellow in both themes.
 :root {
   color-scheme: light;
 
-  --color-primary: #0f8b8d;
-  --color-primary-strong: #0a6769;
-  --color-primary-soft: rgba(15, 139, 141, 0.14);
-  --color-accent: #ef9f29;
-  --color-accent-soft: rgba(239, 159, 41, 0.16);
+  --canvas: #e6e8eb;
+  --panel: #f4f5f7;
+  --panel-raised: #ffffff;
+  --panel-sunken: #dfe2e6;
+  --ink: #1c1f24;
+  --ink-soft: #4b5159;
+  --ink-mute: #6c727b;
+  --line: #cfd3d8;
+  --line-strong: #b6bbc2;
 
-  --color-success: #1f9d69;
-  --color-success-soft: rgba(31, 157, 105, 0.13);
-  --color-danger: #dd5f57;
-  --color-danger-strong: #ba4648;
-  --color-danger-soft: rgba(221, 95, 87, 0.12);
 
-  --bg-page: #f6f1e8;
-  --bg-page-deep: #edf4f3;
-  --bg-nav: rgba(248, 243, 235, 0.78);
-  --bg-nav-solid: rgba(248, 243, 235, 0.96);
-  --bg-glow-start: rgba(15, 139, 141, 0.16);
-  --bg-glow-end: rgba(239, 159, 41, 0.16);
-  --bg-orb-primary: rgba(15, 139, 141, 0.22);
-  --bg-orb-secondary: rgba(239, 159, 41, 0.22);
+  --action: #1c1f24;
+  --action-text: #ffffff;
+  --action-hover: #2c3038;
+  --select: #2f5ad9;
+  --select-soft: rgba(47, 90, 217, 0.12);
+  --flag: #9a5b00;
+  --ok: #2e7d4f;
+  --ok-soft: rgba(46, 125, 79, 0.12);
+  --danger: #c8322b;
+  --danger-soft: rgba(200, 50, 43, 0.1);
 
-  --surface-card: rgba(255, 252, 247, 0.84);
-  --surface-panel: rgba(252, 246, 237, 0.96);
-  --surface-elevated: #fffdf9;
-  --surface-muted: rgba(13, 36, 43, 0.05);
-  --surface-highlight: rgba(15, 139, 141, 0.08);
-  --surface-field: #f4f7f7;
-  --surface-field-hover: #fbfdfd;
+  --focus-ring: rgba(47, 90, 217, 0.35);
 
-  --text-primary: #102225;
-  --text-secondary: rgba(16, 34, 37, 0.78);
-  --text-muted: rgba(16, 34, 37, 0.68);
-  --text-on-accent: #fffaf1;
+  --radius-control: 5px;
+  --radius-panel: 8px;
 
-  --border-subtle: rgba(16, 34, 37, 0.08);
-  --border-strong: rgba(16, 34, 37, 0.12);
-  --border-accent: rgba(15, 139, 141, 0.3);
-  --border-danger: rgba(186, 70, 72, 0.2);
-
-  --shadow-soft: 0 10px 24px rgba(23, 39, 51, 0.06);
-  --shadow-card: 0 24px 60px rgba(21, 37, 48, 0.08);
-  --shadow-strong: 0 20px 40px rgba(15, 139, 141, 0.14);
-  --shadow-tint: rgba(15, 139, 141, 0.2);
-  --shadow-danger: rgba(186, 70, 72, 0.18);
-
-  --focus-ring: rgba(15, 139, 141, 0.2);
-
-  // Darker than the decorative accents so bold --text-on-accent stays above 6:1.
-  --gradient-cta: linear-gradient(135deg, #0a6769, #8a5200);
-
-  --font-display: 'Sora', 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-body: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI Variable Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-ui: 'Atkinson Hyperlegible', 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
+  --font-code: 'Courier Prime', 'Courier New', Courier, monospace;
 }
 
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  --color-primary: #41c7c1;
-  --color-primary-strong: #9ff1eb;
-  --color-primary-soft: rgba(65, 199, 193, 0.18);
-  --color-accent: #ffbf5f;
-  --color-accent-soft: rgba(255, 191, 95, 0.18);
+  --canvas: #1b1d21;
+  --panel: #23262b;
+  --panel-raised: #2a2e34;
+  --panel-sunken: #16181c;
+  --ink: #e9ebee;
+  --ink-soft: #b7bcc4;
+  --ink-mute: #8b9199;
+  --line: #363a41;
+  --line-strong: #474c55;
 
-  --color-success: #4ccf90;
-  --color-success-soft: rgba(76, 207, 144, 0.14);
-  --color-danger: #f07c74;
-  --color-danger-strong: #ff8a82;
-  --color-danger-soft: rgba(240, 124, 116, 0.14);
+  --action: #e9ebee;
+  --action-text: #16181c;
+  --action-hover: #ffffff;
+  --select: #7f9cf5;
+  --select-soft: rgba(127, 156, 245, 0.16);
+  --flag: #e0a83a;
+  --ok: #58b27f;
+  --ok-soft: rgba(88, 178, 127, 0.14);
+  --danger: #e5655c;
+  --danger-soft: rgba(229, 101, 92, 0.14);
 
-  --bg-page: #0f1619;
-  --bg-page-deep: #131c21;
-  --bg-nav: rgba(15, 22, 25, 0.78);
-  --bg-nav-solid: rgba(15, 22, 25, 0.96);
-  --bg-glow-start: rgba(65, 199, 193, 0.18);
-  --bg-glow-end: rgba(255, 191, 95, 0.16);
-  --bg-orb-primary: rgba(65, 199, 193, 0.22);
-  --bg-orb-secondary: rgba(255, 191, 95, 0.18);
-
-  --surface-card: rgba(17, 25, 29, 0.84);
-  --surface-panel: rgba(20, 30, 35, 0.96);
-  --surface-elevated: #182328;
-  --surface-muted: rgba(255, 255, 255, 0.05);
-  --surface-highlight: rgba(65, 199, 193, 0.12);
-  --surface-field: #172328;
-  --surface-field-hover: #1b2a30;
-
-  --text-primary: #eef7f6;
-  --text-secondary: rgba(238, 247, 246, 0.8);
-  --text-muted: rgba(238, 247, 246, 0.58);
-  --text-on-accent: #081012;
-
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.12);
-  --border-accent: rgba(65, 199, 193, 0.28);
-  --border-danger: rgba(240, 124, 116, 0.24);
-
-  --shadow-soft: 0 12px 28px rgba(0, 0, 0, 0.2);
-  --shadow-card: 0 26px 70px rgba(0, 0, 0, 0.24);
-  --shadow-strong: 0 22px 46px rgba(65, 199, 193, 0.16);
-  --shadow-tint: rgba(65, 199, 193, 0.22);
-  --shadow-danger: rgba(240, 124, 116, 0.18);
-
-  --focus-ring: rgba(65, 199, 193, 0.22);
-
-  --gradient-cta: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+  --focus-ring: rgba(127, 156, 245, 0.4);
 }
 
 html,
@@ -165,22 +165,17 @@ body {
 }
 
 html {
-  font-size: 16px;
-  scroll-behavior: smooth;
+  font-size: 15px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 body {
   margin: 0;
-  font-family: var(--font-body);
-  line-height: 1.5;
-  letter-spacing: -0.015em;
-  color: var(--text-primary);
-  background: linear-gradient(180deg, var(--bg-page) 0%, var(--bg-page-deep) 100%);
-  transition:
-    background-color 0.25s ease,
-    color 0.25s ease;
+  font-family: var(--font-ui);
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--canvas);
 }
 
 a {
@@ -193,25 +188,21 @@ input,
 select,
 textarea {
   font: inherit;
+  color: inherit;
 }
 
 button {
   border: 0;
   cursor: pointer;
-
-  &:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 3px;
-  }
 }
 
-input,
-select,
-textarea {
-  &:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
-  }
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--select);
+  outline-offset: 2px;
 }
 
 // Visually hidden but still focusable and announced.
@@ -228,13 +219,13 @@ textarea {
 }
 
 ::selection {
-  color: var(--text-on-accent);
-  background: var(--color-primary);
+  color: var(--ink);
+  background: var(--select-soft);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--border-accent) transparent;
+  scrollbar-color: var(--line-strong) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -245,7 +236,7 @@ textarea {
 *::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
   border-radius: 999px;
-  background: var(--border-accent);
+  background: var(--line-strong);
   background-clip: padding-box;
 }
 
@@ -254,16 +245,11 @@ textarea {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
-
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
   }
 }
