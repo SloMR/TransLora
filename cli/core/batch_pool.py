@@ -4,7 +4,6 @@ sidecar, the live progress line, and cancellation on the first fatal batch."""
 from __future__ import annotations
 
 import asyncio
-import sys
 import time
 
 import httpx
@@ -16,10 +15,10 @@ from .batch_runner import (
 )
 from .config import TranslationConfig
 from .context_pass import FileContext
-from .live_status import Colors, LiveLine, Ticker
+from .live_status import Colors
 from .resume import BatchProgress
+from .run_display import RunDisplay
 from .srt_parser import SubtitleBlock
-from .time_tracker import EtaEstimator, format_duration
 
 
 def prev_tail_for(
@@ -40,6 +39,7 @@ async def run_batches(
     started_at: float,
     file_context: FileContext | None = None,
     progress: BatchProgress | None = None,
+    display: RunDisplay | None = None,
 ) -> list[BatchResult]:
     """Translate every batch with up to cfg.concurrency requests in flight.
 
@@ -61,34 +61,30 @@ async def run_batches(
         print(colors.dim(f"  Resuming: {reused}/{total} batches already translated"))
 
     pending = [i for i, r in enumerate(results) if r is None]
-    eta = EtaEstimator(len(pending), cfg.concurrency, started_at)
     semaphore = asyncio.Semaphore(cfg.concurrency)
 
     failure: FileTranslationError | None = None
 
-    live = LiveLine() if not cfg.quiet else None
-
-    # Route verbose warnings above the live line so the progress refresh
-    # doesn't clobber them. In non-verbose mode warn is a no-op, so leave it.
+    # The file's status line when the caller has one; a bare call (the tests,
+    # a script) gets its own for the duration of the batches.
+    own_display = display is None and not cfg.quiet
+    if own_display:
+        display = RunDisplay(colors, started_at)
+        display.meter.plan("batches", total)
+        display.start()
     original_warn = cfg.warn
-    if live is not None and cfg.verbose:
-        cfg.warn = lambda msg: live.println(colors.yellow(msg), file=sys.stderr)
+    if own_display and display is not None and cfg.verbose:
+        cfg.warn = display.warn
 
-    # Held between completions so the ticker keeps showing the last batch time.
-    last_batch_elapsed = 0.0
-
-    def render() -> None:
-        if live is not None:
-            _render_status(live, colors, reused, total, last_batch_elapsed, eta)
-
-    # A non-TTY LiveLine prints a whole line per update — a 1s tick would bury CI logs.
-    ticker = Ticker(render, interval=1.0) if live is not None and live.enabled else None
-    if ticker is not None:
-        ticker.start()
+    done = reused
+    if display is not None:
+        # The count before the stage: the first line of the stage names it.
+        display.meter.batches(done, total)
+        display.meter.begin("batches")
 
     try:
         async def run_one(idx: int) -> None:
-            nonlocal failure, last_batch_elapsed
+            nonlocal failure, done
             if failure:
                 return
             async with semaphore:
@@ -108,44 +104,19 @@ async def run_batches(
                 if progress is not None:
                     progress.record(idx, translated.blocks)
 
-                last_batch_elapsed = time.time() - batch_start
-                eta.record()
-                render()
+                done += 1
+                if display is not None:
+                    display.batch_elapsed = time.time() - batch_start
+                    display.meter.batches(done, total)
+                    display.render()
 
         await asyncio.gather(*(run_one(i) for i in pending))
     finally:
-        if ticker is not None:
-            ticker.stop()
-        if live is not None:
-            live.finalize()
+        if own_display and display is not None:
+            display.stop()
         cfg.warn = original_warn
 
     if failure:
         raise failure
 
     return [r for r in results if r is not None]
-
-
-def _render_status(
-    live: LiveLine,
-    colors: Colors,
-    done_offset: int,
-    total: int,
-    batch_elapsed: float,
-    eta: EtaEstimator,
-) -> None:
-    done = done_offset + eta.done
-    pct = int(100 * done / total) if total else 0
-    elapsed = time.time() - eta.start
-    remaining = eta.remaining_secs()
-    eta_str = format_duration(remaining) if remaining is not None else "—"
-    avg = elapsed / eta.done if eta.done else batch_elapsed
-    sep = colors.dim("│")
-    line = (
-        f"  [{colors.cyan(f'{done}/{total}')} {colors.dim(f'{pct}%')}] "
-        f"{sep} {colors.dim('batch')} {format_duration(batch_elapsed)} "
-        f"{sep} {colors.dim('elapsed')} {format_duration(elapsed)} "
-        f"{sep} {colors.dim('ETA')} {colors.magenta(eta_str)} "
-        f"{sep} {colors.dim('avg')} {format_duration(avg)}"
-    )
-    live.update(line)

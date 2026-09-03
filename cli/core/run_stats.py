@@ -5,13 +5,12 @@ can still be changed."""
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, fields, replace
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 
 from .constants import (
     ADEQUACY_MIN_BATCHES,
     ADEQUACY_SAMPLE_FRACTION,
-    ESTIMATED_SECS_PER_CALL,
     FIX_FLAGGED_FRACTION,
     FIX_FLAGGED_MIN,
     SYSTEMATIC_CAUSE_MIN,
@@ -42,22 +41,26 @@ class CallCounts:
     review: int = 0
     repair: int = 0
     back_translation: int = 0
+    # Told about every call as it goes out; the status line's meter listens.
+    listener: Callable[[str], None] | None = field(default=None, compare=False, repr=False)
 
     def count(self, kind: str, times: int = 1) -> None:
         setattr(self, kind, getattr(self, kind) + times)
+        if self.listener is not None:
+            for _ in range(times):
+                self.listener(kind)
 
     @property
     def total(self) -> int:
         return sum(getattr(self, k) for k in CALL_KINDS)
 
     def snapshot(self) -> CallCounts:
-        return replace(self)
+        return CallCounts(**{kind: getattr(self, kind) for kind in CALL_KINDS})
 
     def since(self, before: CallCounts) -> CallCounts:
         """What has been counted since `before` was taken."""
         return CallCounts(**{
-            f.name: getattr(self, f.name) - getattr(before, f.name)
-            for f in fields(self)
+            kind: getattr(self, kind) - getattr(before, kind) for kind in CALL_KINDS
         })
 
 
@@ -156,47 +159,3 @@ def sample_indices(batch_count: int, wanted: int) -> list[int]:
     take = min(batch_count, wanted)
     step = batch_count / take
     return [int(i * step) for i in range(take)]
-
-
-@dataclass
-class RunProjection:
-    calls: CallCounts
-    estimated_secs: float
-    secs_per_call: float
-
-    @property
-    def total(self) -> int:
-        return self.calls.total
-
-
-def project_run(
-    block_counts: list[int],
-    batch_size: int,
-    lanes: int,
-    review: bool,
-    fix_flagged: bool,
-    verify_adequacy: bool,
-) -> RunProjection:
-    """The call breakdown a run would make, and how long it would take.
-    Speaker attribution is absent on purpose: how many scenes qualify is only
-    known once the scan has replied, so counting it here would be a guess
-    dressed as a number. Review and repair are upper bounds."""
-    calls = CallCounts()
-    size = max(1, batch_size)
-    for blocks in block_counts:
-        if blocks <= 0:
-            continue
-        batches = math.ceil(blocks / size)
-        calls.count("scan")
-        calls.count("translate", batches)
-        if review:
-            calls.count("review", batches)
-        if fix_flagged:
-            calls.count("repair", fix_flagged_cap(batches))
-        if verify_adequacy:
-            calls.count("back_translation", adequacy_sample_size(batches))
-    return RunProjection(
-        calls=calls,
-        estimated_secs=calls.total / max(1, lanes) * ESTIMATED_SECS_PER_CALL,
-        secs_per_call=ESTIMATED_SECS_PER_CALL,
-    )

@@ -11,7 +11,6 @@ import pytest
 
 from core.constants import (
     ADEQUACY_MIN_BATCHES,
-    ESTIMATED_SECS_PER_CALL,
     FIX_FLAGGED_MIN,
 )
 from core.run_stats import (
@@ -22,7 +21,6 @@ from core.run_stats import (
     fix_flagged_cap,
     group_by_cause,
     plan_repairs,
-    project_run,
     sample_indices,
     systematic_repair_cap,
 )
@@ -167,54 +165,13 @@ def test_the_sample_never_asks_for_more_batches_than_there_are() -> None:
 # === Projection ==============================================================
 
 
-def test_the_projection_prices_every_pass_that_is_switched_on() -> None:
-    projection = project_run(
-        [372], batch_size=10, lanes=1,
-        review=True, fix_flagged=True, verify_adequacy=True,
-    )
-    calls = projection.calls
-    # 38 batches: one scan, one call each, review each, capped repair, sampled
-    # back-translation. Attribution is unknowable before the scan replies.
-    assert (calls.scan, calls.translate, calls.review) == (1, 38, 38)
-    assert (calls.repair, calls.back_translation) == (2, 8)
-    assert calls.attribution == 0
-    assert projection.total == 1 + 38 + 38 + 2 + 8
-
-
-def test_the_optional_passes_cost_nothing_when_they_are_off() -> None:
-    projection = project_run(
-        [372], batch_size=10, lanes=1,
-        review=False, fix_flagged=False, verify_adequacy=False,
-    )
-    assert projection.total == 39
-    assert projection.calls.repair == 0
-
-
-def test_the_default_run_costs_about_five_percent_more_than_before_repair() -> None:
-    """The repair pass is on by default, so it has to stay small. The
-    projection prices the ordinary cap: the raised one is bought by a
-    systematic failure, which nothing can see before the file is translated."""
-    without = project_run([372], 10, 1, review=True, fix_flagged=False,
-                          verify_adequacy=False).total
-    with_repair = project_run([372], 10, 1, review=True, fix_flagged=True,
-                              verify_adequacy=False).total
-    assert (with_repair - without) / without <= 0.05
-
-
-def test_concurrency_divides_the_wall_clock_estimate() -> None:
-    serial = project_run([372], 10, 1, True, False, False)
-    parallel = project_run([372], 10, 6, True, False, False)
-    assert serial.estimated_secs == serial.total * ESTIMATED_SECS_PER_CALL
-    assert parallel.estimated_secs == pytest.approx(serial.estimated_secs / 6)
-    assert parallel.secs_per_call == ESTIMATED_SECS_PER_CALL
-
-
-def test_every_file_is_batched_on_its_own() -> None:
-    # Two 15-block files are 4 batches, not the 3 that 30 blocks would be.
-    projection = project_run([15, 15], 10, 1, False, False, False)
-    assert projection.calls.translate == 4
-    assert projection.calls.scan == 2
-
-
-def test_an_empty_file_is_priced_at_nothing() -> None:
-    assert project_run([0], 10, 1, True, True, True).total == 0
+def test_the_counter_tells_its_listener_about_every_call() -> None:
+    counts = CallCounts()
+    kinds: list[str] = []
+    counts.listener = kinds.append
+    counts.count("scan")
+    counts.count("translate", 2)
+    assert kinds == ["scan", "translate", "translate"]
+    # A snapshot is only the numbers: the listener is not copied or compared.
+    assert counts.snapshot() == CallCounts(scan=1, translate=2)
+    assert counts.since(CallCounts(scan=1)) == CallCounts(translate=2)
