@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "translora"
-version = "0.5.0"
+version = "1.0.0"
 description = "AI-powered subtitle translator with batched LLM calls and block-level validation."
 # No `readme`: it lives above this directory, out of reach of a PEP 517 build.
 requires-python = ">=3.12"
