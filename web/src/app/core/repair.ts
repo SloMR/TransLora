@@ -406,12 +406,6 @@ export function shiftMessage(shift: CueShift): string {
     + 'both cues - text may have shifted between them';
 }
 
-export function detectCrossCueShift(
-  source: SubtitleBlock[], output: SubtitleBlock[],
-): string[] {
-  return findCrossCueShifts(source, output).map(shiftMessage);
-}
-
 /** Strip a cue's vocalisation where the file as a whole carries none — the
  * model switching orthographic register partway through. File-level on
  * purpose: only the whole file says what its baseline is. */

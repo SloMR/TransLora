@@ -9,16 +9,18 @@ Chinese characters and unseparated Latin left inside Arabic text.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from core.repair import (
     TARGET_SCRIPTS,
-    detect_cross_cue_shift,
     detect_variant_drift,
     diacritic_count,
     dialogue_dash_lines,
     drop_empty_tag_pairs,
     enforce_line_length,
+    find_cross_cue_shifts,
     find_script_leaks,
     find_tags,
     normalize_diacritics,
@@ -27,20 +29,65 @@ from core.repair import (
     repair_tags,
     restore_dialogue_dashes,
     restore_terminal_punctuation,
-    script_leaks,
     script_of,
+    shift_message,
     variant_drift_message,
     visible_length,
 )
 from core.srt_parser import (
     SubtitleBlock,
+    normalize_text,
     parse_lite,
-    parse_srt,
     serialize_lite,
-    serialize_srt,
     split_batches,
     validate_batch,
 )
+
+TIMESTAMP_RE = re.compile(
+    r"^\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}$"
+)
+
+
+# The hand-written SRT text parser and writer live here now: the CLI reads
+# every format through pysubs2 and only these tests want the bare wire shape.
+def parse_srt(content: str) -> list[SubtitleBlock]:
+    raw_blocks = re.split(r"\n\n+", normalize_text(content).strip())
+
+    blocks: list[SubtitleBlock] = []
+    for raw in raw_blocks:
+        lines = raw.strip().split("\n")
+        if len(lines) < 2:
+            continue
+        try:
+            number = int(lines[0].strip())
+        except ValueError:
+            continue
+        timestamp = lines[1].strip()
+        if not TIMESTAMP_RE.match(timestamp):
+            continue
+        text = "\n".join(lines[2:]) if len(lines) > 2 else ""
+        blocks.append(SubtitleBlock(number=number, timestamp=timestamp, text=text))
+
+    return blocks
+
+
+def serialize_srt(blocks: list[SubtitleBlock]) -> str:
+    parts: list[str] = []
+    for block in blocks:
+        parts.append(f"{block.number}\n{block.timestamp}\n{block.text}")
+    return "\n\n".join(parts) + "\n"
+
+
+def detect_cross_cue_shift(
+    source: list[SubtitleBlock], output: list[SubtitleBlock],
+) -> list[str]:
+    return [shift_message(s) for s in find_cross_cue_shifts(source, output)]
+
+
+def script_leaks(source_text: str, output_text: str, script: str) -> list[str]:
+    return [leak.message
+            for leak in find_script_leaks(source_text, output_text, script)]
+
 
 ITALIC_OPEN, ITALIC_CLOSE = "{\\i1}", "{\\i0}"
 

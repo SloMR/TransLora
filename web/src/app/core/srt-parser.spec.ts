@@ -1,6 +1,5 @@
 import {
   DIACRITIC_CUE_MIN,
-  detectCrossCueShift,
   detectVariantDrift,
   dialogueDashLines,
   enforceLineLength,
@@ -16,6 +15,8 @@ import {
   variantDriftMessage,
   contentWords,
   visibleLength,
+  findCrossCueShifts,
+  shiftMessage,
 } from './repair';
 import { normsFor, scriptFor } from './languages';
 import {
@@ -47,6 +48,12 @@ import {
   validateBatch,
 } from './srt-parser';
 import { parseSubtitle } from './subtitle-formats';
+
+/** The shift detector's messages, as the run notifies them. */
+function detectCrossCueShift(source: SubtitleBlock[], output: SubtitleBlock[]): string[] {
+  return findCrossCueShifts(source, output).map(shiftMessage);
+}
+
 
 const SAMPLE =
   '1\n' +
