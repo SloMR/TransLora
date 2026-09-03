@@ -503,11 +503,6 @@ def find_script_leaks(
     return problems
 
 
-def script_leaks(source_text: str, output_text: str, script: str) -> list[str]:
-    return [leak.message
-            for leak in find_script_leaks(source_text, output_text, script)]
-
-
 def content_words(text: str) -> list[str]:
     """Comparable words: tags gone, punctuation gone, case folded. Scripts
     written without spaces yield one unit per cue, so the run test below simply
@@ -595,12 +590,6 @@ def find_cross_cue_shifts(
 def shift_message(shift: CueShift) -> str:
     return (f"Blocks {shift.first}-{shift.second}: '{shift.run}' appears in "
             f"both cues - text may have shifted between them")
-
-
-def detect_cross_cue_shift(
-    source: list[SubtitleBlock], output: list[SubtitleBlock],
-) -> list[str]:
-    return [shift_message(s) for s in find_cross_cue_shifts(source, output)]
 
 
 def _last_visible_index(text: str, start: int | None = None) -> int:

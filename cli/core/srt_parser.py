@@ -6,9 +6,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-TIMESTAMP_RE = re.compile(
-    r"^\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}$"
-)
 # Unanchored: catches a timestamp the model echoed anywhere inside a block.
 TIMESTAMP_IN_TEXT_RE = re.compile(
     r"\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}"
@@ -32,34 +29,6 @@ def normalize_text(text: str) -> str:
     while lines and not lines[-1].strip():
         lines.pop()
     return "\n".join(lines)
-
-
-def parse_srt(content: str) -> list[SubtitleBlock]:
-    raw_blocks = re.split(r"\n\n+", normalize_text(content).strip())
-
-    blocks: list[SubtitleBlock] = []
-    for raw in raw_blocks:
-        lines = raw.strip().split("\n")
-        if len(lines) < 2:
-            continue
-        try:
-            number = int(lines[0].strip())
-        except ValueError:
-            continue
-        timestamp = lines[1].strip()
-        if not TIMESTAMP_RE.match(timestamp):
-            continue
-        text = "\n".join(lines[2:]) if len(lines) > 2 else ""
-        blocks.append(SubtitleBlock(number=number, timestamp=timestamp, text=text))
-
-    return blocks
-
-
-def serialize_srt(blocks: list[SubtitleBlock]) -> str:
-    parts: list[str] = []
-    for block in blocks:
-        parts.append(f"{block.number}\n{block.timestamp}\n{block.text}")
-    return "\n\n".join(parts) + "\n"
 
 
 def _collapse_blank_lines(text: str) -> str:

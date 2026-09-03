@@ -41,7 +41,6 @@ from core.context_pass import (
 from core.languages import norms_for, script_for
 from core.repair import (
     RTL_PUNCTUATION,
-    detect_cross_cue_shift,
     detect_variant_drift,
     diacritic_count,
     dialogue_dash_lines,
@@ -53,10 +52,10 @@ from core.repair import (
     repair_tags,
     restore_dialogue_dashes,
     restore_terminal_punctuation,
-    script_leaks,
     visible_length,
 )
 from core.srt_parser import SubtitleBlock, normalize_text
+from tests.test_srt_parser import detect_cross_cue_shift, script_leaks
 
 DATA = Path(__file__).parent / "data" / "synthetic_aligned.json"
 
