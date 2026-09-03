@@ -29,9 +29,10 @@ From the repo root, `make test-web`, `make lint-web`, `make typecheck-web` and
 
 | Path | What lives there |
 | --- | --- |
-| `src/app/app.component.*` | The page shell: theme, layout, and the wiring between the panels |
-| `src/app/file-intake/`, `provider-form/`, `advanced-panel/`, `run-results/` | The four UI panels |
-| `src/app/run-settings.ts` | Every knob: its clamp, its default, its `localStorage` round-trip |
+| `src/app/app.component.*` | The page shell: the workspace layout, which phase the stage is in, and the wiring between the panels |
+| `src/app/file-intake/`, `provider-form/`, `advanced-panel/`, `run-results/` | The panels: the files rail, settings, the advanced popover, and the run summary: what the run repaired and which lines it could not |
+| `src/app/run-settings.ts`, `run-presets.ts` | Every knob: its clamp, its default, its `localStorage` round-trip — and the Fast/Balanced/Best bundles of the quality ones |
+| `src/app/theme.ts` | Light/dark, resolved against the OS setting |
 | `src/app/core/translation-runner.service.ts` | The multi-file queue: worker pool, progress, cancellation, retry |
 | `src/app/core/translation.service.ts` | Per-file orchestration: prepass, batch pool, flags, the capped repair pass |
 | `src/app/core/batch-runner.ts` | One batch: the two retry budgets, recursive split, review pass, deterministic repair |
