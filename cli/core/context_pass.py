@@ -207,24 +207,19 @@ class FileContext:
         if not batch:
             return []
         text = "\n".join(b.text for b in batch)
-        terms = [h for h in self.terms if _find_word(text, h.source) >= 0]
-        named = [h for h in self.characters if _find_word(text, h.source) >= 0]
+        terms = [(h, at) for h in self.terms
+                 if (at := _find_word(text, h.source)) >= 0]
+        named = [(h, at) for h in self.characters
+                 if (at := _find_word(text, h.source)) >= 0]
         if not terms and not named:
             return []
         rendered = "\n".join(b.text for b in output).lower()
-        first = batch[0].number
         return [
-            TermDrift(first, h.source, h.target, kind)
+            TermDrift(_block_holding(batch, at), h.source, h.target, kind)
             for kind, hints in (("term", terms), ("name", named))
-            for h in hints
+            for h, at in hints
             if h.target.strip() and h.target.lower() not in rendered
         ]
-
-    def drift_warnings(
-        self, batch: list[SubtitleBlock], output: list[SubtitleBlock],
-    ) -> list[str]:
-        return [f"Block {d.block}: {drift_phrase(d)}"
-                for d in self.drift_entries(batch, output)]
 
     def has_correctable_entries(self, batch: list[SubtitleBlock]) -> bool:
         """True when the slice holds a character, term or idiom the reviewer
@@ -316,6 +311,20 @@ def _phrase_pattern(needle: str) -> re.Pattern[str] | None:
     if not parts:
         return None
     return re.compile(r"\s+".join(re.escape(part) for part in parts))
+
+
+def _block_holding(batch: list[SubtitleBlock], offset: int) -> int:
+    """The number of the cue whose text `offset` into the newline-joined batch
+    falls in, so a drift is pinned to the cue that says the term rather than
+    to whichever cue happens to open the batch."""
+    if offset < 0:
+        return batch[0].number
+    end = 0
+    for block in batch:
+        end += len(block.text) + 1  # the joining newline
+        if offset < end:
+            return block.number
+    return batch[-1].number
 
 
 def _find_word(text: str, word: str) -> int:

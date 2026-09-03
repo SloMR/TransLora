@@ -21,6 +21,7 @@ import {
   phraseSplitMessage,
   recurringPhrases,
   serializeForScan,
+  driftPhrase,
 } from './context-pass';
 import { SubtitleBlock } from './srt-parser';
 import {
@@ -29,6 +30,12 @@ import {
   SPLIT_PHRASE,
   cuesFor,
 } from './testdata/aligned-cues';
+
+/** The drift entries as the run words them. */
+function driftWarnings(c: FileContext, batch: SubtitleBlock[], output: SubtitleBlock[]): string[] {
+  return c.driftEntries(batch, output).map((d) => `Block ${d.block}: ${driftPhrase(d)}`);
+}
+
 
 const TEST_BUDGET = 24_000;
 
@@ -722,23 +729,35 @@ describe('FileContext.driftWarnings', () => {
   const batch = [block(94, 'A safety briefing session.')];
 
   it('names a term the output rendered some other way', () => {
-    expect(c.driftWarnings(batch, [block(94, 'ندوة عن المضايقة الجنسية.')])).toEqual([
+    expect(driftWarnings(c, batch, [block(94, 'ندوة عن المضايقة الجنسية.')])).toEqual([
       "Block 94: glossary term 'safety briefing' was not rendered as 'جلسة السلامة'",
     ]);
   });
 
   it('stays quiet when the pinned rendering is there', () => {
-    expect(c.driftWarnings(batch, [block(94, 'ندوة جلسة السلامة.')])).toEqual([]);
+    expect(driftWarnings(c, batch, [block(94, 'ندوة جلسة السلامة.')])).toEqual([]);
   });
 
   it("ignores terms the batch's own source never used", () => {
-    expect(c.driftWarnings([block(94, 'Nothing to see.')], [block(94, 'لا شيء.')]))
+    expect(driftWarnings(c, [block(94, 'Nothing to see.')], [block(94, 'لا شيء.')]))
       .toEqual([]);
   });
 
+  it('pins the drift to the cue that says the term', () => {
+    // The review used to show "Block 81: 'provisional squad' was not rendered"
+    // against a cue reading "Yeah. There we go.": every drift in a batch was
+    // charged to the batch's first cue.
+    const wide = [block(94, 'Nothing here.'), block(95, 'Still nothing.'),
+                  block(96, 'A safety briefing session.')];
+    const out = [block(94, 'لا شيء.'), block(95, 'ولا هنا.'), block(96, 'ندوة أخرى.')];
+    expect(driftWarnings(c, wide, out)).toEqual([
+      "Block 96: glossary term 'safety briefing' was not rendered as 'جلسة السلامة'",
+    ]);
+  });
+
   it('reports nothing for an empty batch or an empty glossary', () => {
-    expect(c.driftWarnings([], [])).toEqual([]);
-    expect(new FileContext().driftWarnings(batch, [block(94, 'x')])).toEqual([]);
+    expect(driftWarnings(c, [], [])).toEqual([]);
+    expect(driftWarnings(new FileContext(), batch, [block(94, 'x')])).toEqual([]);
   });
 
   describe('over character names', () => {
@@ -751,20 +770,20 @@ describe('FileContext.driftWarnings', () => {
     const named = [block(94, 'Phyllis, hold on.')];
 
     it('names a character the output spelled another way', () => {
-      expect(cast.driftWarnings(named, [block(94, 'فيلس، انتظري.')])).toEqual([
+      expect(driftWarnings(cast, named, [block(94, 'فيلس، انتظري.')])).toEqual([
         "Block 94: character name 'Phyllis' was not rendered as 'فيليس'",
       ]);
     });
 
     it('stays quiet when the pinned spelling is there', () => {
-      expect(cast.driftWarnings(named, [block(94, 'فيليس، انتظري.')])).toEqual([]);
+      expect(driftWarnings(cast, named, [block(94, 'فيليس، انتظري.')])).toEqual([]);
     });
 
     it('asks nothing of a character the batch never names', () => {
       // Jim is a participant of the overlapping scene, so his gender still
       // reaches the prompt — but a name nobody said owes no rendering, and
       // only Phyllis is reported here.
-      expect(cast.driftWarnings(named, [block(94, 'فيلس، انتظري.')]).length).toBe(1);
+      expect(driftWarnings(cast, named, [block(94, 'فيلس، انتظري.')]).length).toBe(1);
     });
 
     it('carries a cause naming what drifted, never where', () => {
