@@ -20,7 +20,6 @@ from .constants import (
     MAX_DIALECT_CORRECTIONS,
     MAX_RETRY_DELAY_SECS,
     REASONING_BUDGET_MULTIPLIER,
-    REASONING_EFFORT_MINIMAL,
     REQUEST_TEMPERATURE,
 )
 
@@ -147,8 +146,8 @@ def request_body(
     }
     if dialect.send_temperature:
         body["temperature"] = REQUEST_TEMPERATURE
-    if dialect.minimal_reasoning:
-        body["reasoning_effort"] = REASONING_EFFORT_MINIMAL
+    if dialect.reasoning_effort is not None:
+        body["reasoning_effort"] = dialect.reasoning_effort
     if endpoint.model:
         body["model"] = endpoint.model
     return body
@@ -185,7 +184,7 @@ async def call_chat_api(
     corrections = 0
 
     while True:
-        sent = (dialect.token_param, dialect.send_temperature)
+        sent = (dialect.token_param, dialect.send_temperature, dialect.reasoning_effort)
         resp = await client.post(
             url,
             json=request_body(system_prompt, user_message, endpoint,
@@ -198,7 +197,8 @@ async def call_chat_api(
             # A concurrent call may have learned this lesson while we were in
             # flight, leaving nothing to adjust: the request is still the one
             # shape that was refused, so re-send it in the shape it learned.
-            if changes or (dialect.token_param, dialect.send_temperature) != sent:
+            if changes or (dialect.token_param, dialect.send_temperature,
+                           dialect.reasoning_effort) != sent:
                 corrections += 1
                 for change in changes:
                     cfg.warn(dialect_warning(change))

@@ -84,8 +84,12 @@ DEFAULT_SEND_TEMPERATURE = True
 # Reasoning models spend the whole token budget thinking before emitting any
 # text. Subtitle translation needs none of it: on gpt-5-mini this cut a reply
 # from 476 tokens (448 of them reasoning) to 27 with the same translation.
-REASONING_EFFORT_MINIMAL = "minimal"
-MAX_DIALECT_CORRECTIONS = 2
+# What a reasoning endpoint is asked for, most-preferred first: translation
+# wants the answer, not the thinking. A 400 that lists the values the model
+# accepts picks the first of these it names; one that lists none drops it.
+REASONING_EFFORT_PREFERENCE = ("none", "minimal", "low")
+# Token parameter, temperature and reasoning effort can each cost one.
+MAX_DIALECT_CORRECTIONS = 3
 # A reasoning model can spend a whole budget thinking before it writes a word.
 # The budget is doubled up to this multiple of the request's own size.
 REASONING_BUDGET_MULTIPLIER = 4

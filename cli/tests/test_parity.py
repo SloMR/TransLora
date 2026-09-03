@@ -714,6 +714,9 @@ def test_the_default_script_name_is_identical_in_both_trees() -> None:
 @pytest.mark.parametrize("py_name,ts_name", [
     ("_TOKEN_PARAM_RE", "TOKEN_PARAM_RE"),
     ("_TEMPERATURE_RE", "TEMPERATURE_RE"),
+    ("_OUTPUT_LIMIT_RE", "OUTPUT_LIMIT_RE"),
+    ("_REASONING_EFFORT_RE", "REASONING_EFFORT_RE"),
+    ("_SUPPORTED_VALUES_RE", "SUPPORTED_VALUES_RE"),
 ])
 def test_the_dialect_detection_regexes_are_identical_in_both_trees(
     py_name: str, ts_name: str,
@@ -727,10 +730,19 @@ def test_the_dialect_detection_regexes_are_identical_in_both_trees(
     )
 
 
-@pytest.mark.parametrize("name", ["TOKEN_PARAM_CHANGE", "TEMPERATURE_CHANGE"])
+@pytest.mark.parametrize("name", [
+    "TOKEN_PARAM_CHANGE", "TEMPERATURE_CHANGE", "REASONING_CHANGE", "REASONING_DROP_CHANGE",
+])
 def test_the_dialect_change_names_are_identical_in_both_trees(name: str) -> None:
     theirs = _ts_declaration(_ts_source_declaring(name), name).strip().strip("'")
     assert getattr(py_config, name) == theirs
+
+
+def test_the_reasoning_effort_preference_is_identical_and_in_the_same_order() -> None:
+    """Ordered, not a set: 'none' is asked for first because it is cheapest."""
+    mine, ts_source = _both_sides("REASONING_EFFORT_PREFERENCE")
+    theirs = re.findall(r"'([^']+)'", _ts_declaration(ts_source, "REASONING_EFFORT_PREFERENCE"))
+    assert theirs == list(mine)
 
 
 def test_the_dialect_warning_is_worded_identically_in_both_trees() -> None:

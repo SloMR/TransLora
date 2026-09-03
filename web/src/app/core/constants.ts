@@ -88,7 +88,12 @@ export const TOKEN_PARAM_DEFAULT = 'max_tokens';
 export const TOKEN_PARAM_COMPLETION = 'max_completion_tokens';
 export const DEFAULT_SEND_TEMPERATURE = true;
 // One 400 names one quirk, so a request needing both pays two round trips.
-export const MAX_DIALECT_CORRECTIONS = 2;
+// Token parameter, temperature and reasoning effort can each cost one.
+export const MAX_DIALECT_CORRECTIONS = 3;
 // A reasoning model can spend a whole budget thinking before it writes a word.
 // The budget is doubled up to this multiple of the request's own size.
 export const REASONING_BUDGET_MULTIPLIER = 4;
+// What a reasoning endpoint is asked for, most-preferred first: translation
+// wants the answer, not the thinking. A 400 that lists the values the model
+// accepts picks the first of these it names; one that lists none drops it.
+export const REASONING_EFFORT_PREFERENCE = ['none', 'minimal', 'low'];
