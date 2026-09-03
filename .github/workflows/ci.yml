@@ -271,8 +271,8 @@ jobs:
   # Single status check for branch protection. Passes when every upstream
   # job either succeeded or was legitimately skipped (path filter). Fails
   # if any upstream actually failed or was cancelled.
-  ci:
-    name: CI
+  checks:
+    name: All checks
     needs: [changes, scripts, cli, python-quality, web, docker-web, docker-cli]
     if: always()
     runs-on: ubuntu-latest
