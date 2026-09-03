@@ -278,6 +278,8 @@ describe('AppComponent', () => {
     it('grows when an opt-in pass is switched on', () => {
       app.files.set([makeFile('a.srt', 100)]);
       app.settings.setNumber('batchSize', 10);
+      // Best is the default now, so start from the pass being off.
+      app.settings.verifyAdequacy.set(false);
       const before = app.projection().total;
       app.settings.verifyAdequacy.set(true);
       expect(app.projection().total).toBe(before + 2);

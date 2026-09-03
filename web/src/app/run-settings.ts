@@ -2,23 +2,18 @@ import { computed, signal } from '@angular/core';
 import { type Formality } from './core/translation.service';
 import {
   DEFAULT_BATCH_SIZE,
-  DEFAULT_CONTEXT_OVERLAP,
   DEFAULT_DIALECT,
-  DEFAULT_FIX_FLAGGED,
   DEFAULT_FORMALITY,
-  DEFAULT_FULL_ATTRIBUTION,
   DEFAULT_MAX_RETRIES,
   DEFAULT_PARALLEL_FILES,
-  DEFAULT_REFINE_ATTRIBUTION,
   DEFAULT_REFLOW,
-  DEFAULT_REVIEW,
   DEFAULT_SCAN_BUDGET,
   DEFAULT_SEND_TEMPERATURE,
-  DEFAULT_VERIFY_ADEQUACY,
   FORMALITY_CHOICES,
 } from './core/constants';
 import { DEFAULT_SCRIPT, effectiveNorms, normsFor } from './core/languages';
 import { PROVIDER_PRESETS, ProviderPreset } from './core/providers';
+import { QUALITY_PRESETS, QualityPresetKey, matchQualityPreset } from './run-presets';
 
 const DEFAULTS = {
   sourceLang: '',
@@ -26,14 +21,16 @@ const DEFAULTS = {
   batchSize: DEFAULT_BATCH_SIZE,
   parallelFiles: DEFAULT_PARALLEL_FILES,
   maxRetries: DEFAULT_MAX_RETRIES,
-  contextOverlap: DEFAULT_CONTEXT_OVERLAP,
+  // The quality knobs open on Best: the pipeline's own constants are the
+  // Balanced preset, and a pill is one click away for anyone who wants speed.
+  contextOverlap: QUALITY_PRESETS.best.contextOverlap,
   scanBudget: DEFAULT_SCAN_BUDGET,
-  refineAttribution: DEFAULT_REFINE_ATTRIBUTION,
-  review: DEFAULT_REVIEW,
+  refineAttribution: QUALITY_PRESETS.best.refineAttribution,
+  review: QUALITY_PRESETS.best.review,
   reflow: DEFAULT_REFLOW,
-  fixFlagged: DEFAULT_FIX_FLAGGED,
-  verifyAdequacy: DEFAULT_VERIFY_ADEQUACY,
-  fullAttribution: DEFAULT_FULL_ATTRIBUTION,
+  fixFlagged: QUALITY_PRESETS.best.fixFlagged,
+  verifyAdequacy: QUALITY_PRESETS.best.verifyAdequacy,
+  fullAttribution: QUALITY_PRESETS.best.fullAttribution,
   sendTemperature: DEFAULT_SEND_TEMPERATURE,
   formality: DEFAULT_FORMALITY as Formality,
   dialect: DEFAULT_DIALECT,
@@ -165,6 +162,18 @@ export class RunSettings {
 
   currentPreset = computed(() => presetFor(this.providerType()));
 
+  // Read off the knobs rather than stored beside them, so a knob changed in
+  // the Advanced panel cannot leave a stale pill lit.
+  qualityPreset = computed<QualityPresetKey | 'custom'>(() =>
+    matchQualityPreset({
+      review: this.review(),
+      refineAttribution: this.refineAttribution(),
+      fixFlagged: this.fixFlagged(),
+      verifyAdequacy: this.verifyAdequacy(),
+      fullAttribution: this.fullAttribution(),
+      contextOverlap: this.contextOverlap(),
+    }) ?? 'custom');
+
   // What the reflow pass will enforce for the chosen target, override included.
   targetNorms = computed(() => effectiveNorms(this.targetLang(), this.maxLineChars()));
 
@@ -241,8 +250,13 @@ export class RunSettings {
     }
     const preset = this.currentPreset();
     this.apiUrl.set(typeof stored.apiUrl === 'string' ? stored.apiUrl : preset.apiUrl);
+    // A stored id the person typed is kept even if the preset no longer lists
+    // it; a blank one is not a choice, so the preset's default (its cheapest)
+    // stands in.
     this.modelName.set(
-      typeof stored.modelName === 'string' ? stored.modelName : preset.defaultModel,
+      typeof stored.modelName === 'string' && stored.modelName.trim() !== ''
+        ? stored.modelName
+        : preset.defaultModel,
     );
     if (typeof stored.customApiUrl === 'string') this.customApiUrl = stored.customApiUrl;
     if (typeof stored.sourceLang === 'string') this.sourceLang.set(stored.sourceLang);
@@ -364,6 +378,16 @@ export class RunSettings {
     this.reviewApiUrl.set(DEFAULTS.reviewApiUrl);
     this.reviewApiKey.set('');
     this.reviewModel.set(DEFAULTS.reviewModel);
+  }
+
+  applyQualityPreset(key: QualityPresetKey) {
+    const preset = QUALITY_PRESETS[key];
+    this.review.set(preset.review);
+    this.refineAttribution.set(preset.refineAttribution);
+    this.fixFlagged.set(preset.fixFlagged);
+    this.verifyAdequacy.set(preset.verifyAdequacy);
+    this.fullAttribution.set(preset.fullAttribution);
+    this.contextOverlap.set(preset.contextOverlap);
   }
 
   setDialect(value: string) {

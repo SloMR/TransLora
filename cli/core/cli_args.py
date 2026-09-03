@@ -35,6 +35,8 @@ from .constants import (
 )
 from .languages import effective_norms
 from .live_status import Colors
+from .providers import PROVIDER_CHOICES, PROVIDER_PRESETS
+from .quality_presets import KNOB_NAMES, QUALITY_CHOICES, QUALITY_PRESETS
 from .time_tracker import format_duration
 from .translator import FALLBACK_ENCODINGS, FilePlan, plan_file
 
@@ -75,7 +77,7 @@ examples:
 
   # Pin the variant and the register, and cap the line length yourself
   python translora.py movie.srt -t Arabic --api-url ... \\
-    --dialect "Egyptian Arabic" --formality informal --max-line-chars 38
+    --dialect "Saudi Arabic" --formality informal --max-line-chars 38
 
 line norms:
   Line length, line count and reading speed follow the target language's
@@ -174,12 +176,21 @@ def build_parser(version: str) -> argparse.ArgumentParser:
     # A blank target would ask for "nothing" and name the output `movie..srt`.
     p.add_argument("--target", "-t", required=True, type=_non_empty,
                    help="Target language (e.g. Arabic, Spanish, Korean)")
-    p.add_argument("--api-url", required=True, help="LLM API endpoint URL")
+    p.add_argument("--quality", "-q", choices=QUALITY_CHOICES, default=None,
+                   help="A quality bundle instead of the individual knobs: fast "
+                        "(one pass), balanced (the defaults), best (everything "
+                        "on). Knobs you pass explicitly still win.")
+    p.add_argument("--provider", choices=PROVIDER_CHOICES, default=None,
+                   help="A known provider: sets --api-url, the cheapest model "
+                        "and a sensible --concurrency unless you pass them.")
+    p.add_argument("--api-url", default=None,
+                   help="LLM API endpoint URL (any OpenAI-style chat-completions "
+                        "endpoint); or name a --provider")
     p.add_argument("--api-key", default=None,
                    help=f"API key (default: ${API_KEY_ENV}, else none — "
                         "for local servers)")
     p.add_argument("--model", default=None,
-                   help="Model name (e.g. gpt-4.1-mini, deepseek-chat)")
+                   help="Model name (e.g. gpt-5.6-luna, deepseek-v4-flash)")
     p.add_argument("--review-api-url", default=None, metavar="URL",
                    help="Send the review pass to this endpoint instead "
                         "(default: --api-url). Quality is model-bound and the "
@@ -294,6 +305,29 @@ def build_parser(version: str) -> argparse.ArgumentParser:
                         "count and the script's line length (deterministic, "
                         "no extra API calls).")
     return p
+
+
+def apply_quality(args, parser: argparse.ArgumentParser) -> None:
+    """Let --quality set the knobs the user left at their defaults; a knob the
+    command line spelled out keeps its value."""
+    if not args.quality:
+        return
+    knobs = QUALITY_PRESETS[args.quality].knobs
+    for name in KNOB_NAMES:
+        if getattr(args, name) == parser.get_default(name):
+            setattr(args, name, getattr(knobs, name))
+
+
+def apply_provider(args) -> None:
+    """Let --provider stand in for the flags it implies, without overriding
+    any the command line spelled out."""
+    if not args.provider:
+        return
+    preset = PROVIDER_PRESETS[args.provider]
+    args.api_url = args.api_url or preset.api_url
+    args.model = args.model or preset.default_model
+    if args.concurrency == DEFAULT_CONCURRENCY:
+        args.concurrency = preset.default_concurrency
 
 
 def _plan_line(plan: FilePlan) -> str:

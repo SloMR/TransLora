@@ -34,6 +34,8 @@ from core import constants as py_constants
 from core import context_pass as py_context_pass
 from core import languages as py_languages
 from core import prompt as py_prompt
+from core import providers as py_providers
+from core import quality_presets as py_quality
 from core import repair as py_repair
 from core import srt_parser as py_srt_parser
 
@@ -756,3 +758,82 @@ def test_the_dialect_warning_is_worded_identically_in_both_trees() -> None:
     assert any(mine in source for source in WEB_PROSE.values()), (
         f"no module in web/src/app/core emits {mine!r}"
     )
+
+
+# === Provider presets =========================================================
+# The web's picker and the CLI's --provider / interactive start offer the same
+# endpoints and the same models at the same prices, cheapest first.
+
+
+def _web_presets() -> dict[str, dict]:
+    source = (WEB_CORE / "providers.ts").read_text(encoding="utf-8")
+    presets: dict[str, dict] = {}
+    for m in re.finditer(r"\n  (\w+): preset\(\{(.*?)\n  \}\),", source, re.S):
+        key, body = m.group(1), m.group(2)
+        url = re.search(r"apiUrl: '([^']*)'", body)
+        lanes = re.search(r"defaultConcurrency: (\d+)", body)
+        assert url is not None and lanes is not None, key
+        presets[key] = {
+            "api_url": url.group(1),
+            "models": re.findall(
+                r"\{ id: '([^']+)', input: ([\d.]+), output: ([\d.]+), note: '([^']*)' \}",
+                body),
+            "needs_key": "needsKey: true" in body,
+            "concurrency": int(lanes.group(1)),
+        }
+    return presets
+
+
+def test_the_provider_presets_are_identical_in_both_trees() -> None:
+    web = _web_presets()
+    assert set(web) == set(py_providers.PROVIDER_PRESETS)
+    for key, preset in py_providers.PROVIDER_PRESETS.items():
+        theirs = web[key]
+        assert preset.api_url == theirs["api_url"], key
+        assert preset.needs_key is theirs["needs_key"], key
+        assert preset.default_concurrency == theirs["concurrency"], key
+        mine = [(m.id, m.input, m.output, m.note) for m in preset.models]
+        assert mine == [(i, float(a), float(b), n) for i, a, b, n in theirs["models"]], key
+
+
+# === Quality presets ==========================================================
+# The web's three pills and the CLI's --quality / guided session bundle the
+# same knobs to the same values, under the same words.
+
+_WEB_KNOB = {"review": "review", "refineAttribution": "refine_attribution",
+             "fixFlagged": "fix_flagged", "verifyAdequacy": "verify_adequacy",
+             "fullAttribution": "full_attribution", "contextOverlap": "context_overlap"}
+
+
+def _web_quality_presets() -> dict[str, dict]:
+    source = (WEB_CORE.parent / "run-presets.ts").read_text(encoding="utf-8")
+    consts = (WEB_CORE / "constants.ts").read_text(encoding="utf-8")
+
+    def value(raw: str):
+        raw = raw.strip()
+        if raw in ("true", "false"):
+            return raw == "true"
+        if raw.isdigit():
+            return int(raw)
+        found = re.search(r"export const " + re.escape(raw) + r" = ([^;]+);", consts)
+        assert found is not None, raw
+        return value(found.group(1))
+
+    presets: dict[str, dict] = {}
+    preset_re = re.compile(
+        r"\n  (\w+): \{\n    label: '([^']+)',\n    summary: '([^']+)',\n(.*?)\n  \},", re.S)
+    for m in preset_re.finditer(source):
+        key, label, summary, body = m.groups()
+        knobs = {_WEB_KNOB[k]: value(v) for k, v in re.findall(r"(\w+): ([^,\n]+),", body)}
+        presets[key] = {"label": label, "summary": summary, "knobs": knobs}
+    return presets
+
+
+def test_the_quality_presets_are_identical_in_both_trees() -> None:
+    web = _web_quality_presets()
+    assert list(web) == list(py_quality.QUALITY_PRESETS) == ["fast", "balanced", "best"]
+    for key, preset in py_quality.QUALITY_PRESETS.items():
+        assert preset.label == web[key]["label"], key
+        assert preset.summary == web[key]["summary"], key
+        mine = {name: getattr(preset.knobs, name) for name in py_quality.KNOB_NAMES}
+        assert mine == web[key]["knobs"], key
