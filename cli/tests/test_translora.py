@@ -23,6 +23,7 @@ from core.constants import (
     DEFAULT_VERIFY_ADEQUACY,
     TOKEN_PARAM_COMPLETION,
 )
+from core.translator import FileReport
 from tests.conftest import run_async
 
 SRT = "1\n00:00:01,000 --> 00:00:02,000\nHello\n"
@@ -202,11 +203,12 @@ def _fake_translation(monkeypatch, failing: Collection[str] = ()):
     """Replace the per-file translator; records the config it was handed."""
     seen: list = []
 
-    async def fake(input_path, output_path, cfg):
+    async def fake(input_path, output_path, cfg) -> FileReport:
         seen.append((input_path.name, cfg))
         if input_path.name in failing:
             raise FileTranslationError("batch 1 failed")
         output_path.write_text("translated\n", encoding="utf-8")
+        return FileReport(still_flagged=())
 
     monkeypatch.setattr(translora, "translate_file_async", fake)
     return seen
@@ -641,10 +643,11 @@ def test_a_multi_file_run_reports_what_the_whole_run_cost(
     args = _args(str(tmp_path / "a.srt"), str(tmp_path / "b.srt"),
                  "-t", "Arabic", "--api-url", "http://x")
 
-    async def counted(input_path, output_path, cfg):
+    async def counted(input_path, output_path, cfg) -> FileReport:
         cfg.calls.count("scan")
         cfg.calls.count("translate", 4)
         output_path.write_text("t\n", encoding="utf-8")
+        return FileReport(still_flagged=())
 
     monkeypatch.setattr(translora, "translate_file_async", counted)
     assert run_async(_run(args, RunTotals())) == EXIT_OK

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -166,12 +167,12 @@ async def _build_file_context(
         file_context = _load_glossary_for(input_path, blocks, cfg)
     else:
         if not cfg.quiet:
-            print(colors.dim("  Scanning for cast and context..."))
+            print(colors.cyan("  Scanning for cast and context..."))
         file_context = await extract_file_context(client, blocks, cfg)
 
     if cfg.refine_attribution and attribution_targets(file_context, cfg):
         if not cfg.quiet:
-            print(colors.dim("  Attributing speakers in two-hander scenes..."))
+            print(colors.cyan("  Attributing speakers in two-hander scenes..."))
         await refine_scene_attribution(client, file_context, blocks, cfg)
 
     if not cfg.quiet:
@@ -305,7 +306,7 @@ async def _adequacy_flags(
                  "back into")
         return {}
     if not cfg.quiet:
-        print(colors.dim("  Checking adequacy by back-translation..."))
+        print(colors.cyan("  Checking adequacy by back-translation..."))
     return await verify_adequacy(client, batches, results, cfg)
 
 
@@ -316,29 +317,31 @@ async def _repair_flagged(
     flagged: dict[int, list[BatchFlag]],
     cfg: TranslationConfig,
     file_context: FileContext | None,
-) -> None:
+) -> tuple[set[int], set[int]]:
     """Re-issue the flagged batches, rarest cause first so a failure spanning
     the file cannot crowd out the one-offs. Each retry is kept only if it comes
-    back with strictly fewer flags, so this can never make the file worse."""
+    back with strictly fewer flags, so this can never make the file worse.
+    Returns the batches it tried and the ones whose retry it kept."""
     plan = plan_repairs(
         {index: [flag.cause for flag in flags]
          for index, flags in flagged.items() if flags},
         len(batches),
     )
     selected = plan.selected
+    colors = Colors()
     if plan.skipped:
-        _note(cfg, f"  {plan.flagged} flagged batch(es) across {plan.causes} "
-                   f"cause(s); repairing {len(selected)} (cap {plan.cap}), "
-                   f"leaving {plan.skipped}")
+        _note(cfg, colors.yellow(
+            f"  {plan.flagged} flagged batch(es) across {plan.causes} "
+            f"cause(s); repairing {len(selected)} (cap {plan.cap}), "
+            f"leaving {plan.skipped}"))
     else:
-        _note(cfg, f"  Repairing {len(selected)} flagged batch(es) across "
-                   f"{plan.causes} cause(s)...")
+        _note(cfg, colors.cyan(f"  Repairing {len(selected)} flagged batch(es) across "
+                               f"{plan.causes} cause(s)..."))
 
     semaphore = asyncio.Semaphore(max(1, cfg.concurrency))
-    accepted = 0
+    accepted: set[int] = set()
 
     async def repair_one(index: int) -> None:
-        nonlocal accepted
         async with semaphore:
             repaired = await retry_flagged_batch(
                 client, batches[index], cfg, file_context,
@@ -347,17 +350,147 @@ async def _repair_flagged(
             )
             if repaired is not results[index]:
                 results[index] = repaired
-                accepted += 1
+                accepted.add(index)
 
     await asyncio.gather(*(repair_one(i) for i in selected))
-    _note(cfg, f"  Repaired {accepted}/{len(selected)} flagged batch(es)")
+    _note(cfg, colors.green(f"  Repaired {len(accepted)}/{len(selected)} flagged batch(es)"))
+    return set(selected), accepted
+
+
+def _surviving_by_cue(
+    results: list[BatchResult],
+    extras: dict[int, list[BatchFlag]],
+    accepted: set[int],
+) -> dict[int, list[BatchFlag]]:
+    """What is still wrong after the batch retries, by cue. A batch's detector
+    flags are re-read from whatever text it ends up shipping; the adequacy and
+    phrase flags were never re-measured, so they stand unless the batch they
+    belong to was re-translated and the retry kept."""
+    by_cue: dict[int, list[BatchFlag]] = {}
+    for index, result in enumerate(results):
+        flags = list(result.flags)
+        if index not in accepted:
+            flags.extend(extras.get(index, []))
+        for flag in flags:
+            by_cue.setdefault(flag.block, []).append(flag)
+    return by_cue
+
+
+async def _repair_cues(
+    client: httpx.AsyncClient,
+    batches: list[list[SubtitleBlock]],
+    results: list[BatchResult],
+    extras: dict[int, list[BatchFlag]],
+    attempted: set[int],
+    accepted: set[int],
+    cfg: TranslationConfig,
+    file_context: FileContext | None,
+) -> None:
+    """The narrower second pass: a cue still flagged after the batch retries is
+    re-issued on its own, its problems named. A correction the model let slide
+    inside a ten-cue batch is usually followed when the cue is all there is to
+    do. Same acceptance rule as the batch retry, so it cannot make the file
+    worse, and capped at the same share of the file's cues. A one-cue batch
+    the batch pass already retried is not offered the same retry twice."""
+    where = {block.number: (index, position)
+             for index, batch in enumerate(batches)
+             for position, block in enumerate(batch)}
+    leftover = {
+        number: flags
+        for number, flags in _surviving_by_cue(results, extras, accepted).items()
+        if number in where
+        and not (len(batches[where[number][0]]) == 1
+                 and where[number][0] in attempted)
+    }
+    if not leftover:
+        return
+    source = [block for batch in batches for block in batch]
+    numbers = sorted(leftover)
+    cap = fix_flagged_cap(len(source))
+    chosen = numbers[:cap]
+    colors = Colors()
+    if len(chosen) < len(numbers):
+        _note(cfg, colors.yellow(
+            f"  {len(numbers)} flagged line(s) left after the batch "
+            f"retries; re-translating {len(chosen)} on their own "
+            f"(cap {cap}), leaving {len(numbers) - len(chosen)}"))
+    else:
+        _note(cfg, colors.cyan(f"  Re-translating {len(chosen)} flagged line(s) on their "
+                               f"own..."))
+    at = {block.number: i for i, block in enumerate(source)}
+    semaphore = asyncio.Semaphore(max(1, cfg.concurrency))
+    kept = 0
+
+    async def repair_one(number: int) -> None:
+        nonlocal kept
+        index, position = where[number]
+        flags = leftover[number]
+        previous = BatchResult([results[index].blocks[position]], flags)
+        start = at[number]
+        # Its neighbours before it, as the batch would have shown them.
+        prev_tail = (source[max(0, start - cfg.context_overlap):start]
+                     if cfg.context_overlap > 0 else [])
+        async with semaphore:
+            repaired = await retry_flagged_batch(
+                client, [source[start]], cfg, file_context, prev_tail,
+                previous, flags,
+            )
+        if repaired is previous:
+            return
+        result = results[index]
+        blocks = list(result.blocks)
+        blocks[position] = repaired.blocks[0]
+        results[index] = BatchResult(
+            blocks,
+            [f for f in result.flags if f.block != number] + repaired.flags,
+        )
+        extras[index] = [f for f in extras.get(index, []) if f.block != number]
+        kept += 1
+
+    await asyncio.gather(*(repair_one(n) for n in chosen))
+    _note(cfg, colors.green(f"  Repaired {kept}/{len(chosen)} flagged line(s) on their own"))
+
+
+FLAG_LINES_SHOWN = 25
+
+
+def _flag_lines(left: dict[int, list[BatchFlag]], limit: int = FLAG_LINES_SHOWN) -> list[str]:
+    """The lines still flagged, each with its reasons: the part worth acting on."""
+    lines = []
+    for number in sorted(left)[:limit]:
+        reasons = sorted({re.sub(r"^Block \d+: ", "", flag.message) for flag in left[number]})
+        lines.append(f"    line {number}: {'; '.join(reasons)}")
+    if len(left) > limit:
+        lines.append(f"    ... and {len(left) - limit} more")
+    return lines
+
+
+def _flag_summary(
+    raised: set[tuple[int, str]], surviving: set[tuple[int, str]],
+    left: dict[int, list[BatchFlag]],
+) -> str:
+    """The one line worth reading about the flags: how many the run raised,
+    how many it put right itself, and which lines it could not."""
+    line = (f"  Flags: {len(raised)} raised, {len(raised - surviving)} fixed "
+            f"by the run, {len(surviving)} still flagged")
+    lines = sorted(left)
+    if 0 < len(lines) <= 12:
+        line += f" (line{'s' if len(lines) > 1 else ''} {', '.join(map(str, lines))})"
+    return line
+
+
+@dataclass(frozen=True)
+class FileReport:
+    """What one finished file came to, for the queue's per-file line: the
+    lines the run could not put right. The counts are printed by the run."""
+    still_flagged: tuple[int, ...]
 
 
 async def translate_file_async(
     input_path: Path,
     output_path: Path,
     cfg: TranslationConfig,
-) -> None:
+) -> FileReport:
     """Translate one subtitle file end-to-end.
 
     Raises FileTranslationError on anything that makes the file unusable: an
@@ -394,12 +527,30 @@ async def translate_file_async(
         results = await run_batches(
             client, batches, cfg, colors, time.time(), file_context, progress,
         )
-        extra = await _adequacy_flags(client, batches, results, cfg, colors)
-        flagged = _flagged_batches(
-            results, extra, _phrase_flags(batches, results, cfg))
+        # The file-level flags, kept apart from the detectors': no retry can
+        # re-measure them, so only an accepted retry of their batch clears them.
+        extras = _flagged_batches(
+            [], await _adequacy_flags(client, batches, results, cfg, colors),
+            _phrase_flags(batches, results, cfg))
+        flagged = _flagged_batches(results, extras)
+        # Snapshot before any repair: the repairs below rewrite what survives.
+        raised = {(flag.block, flag.cause)
+                  for flags in flagged.values() for flag in flags}
+        accepted: set[int] = set()
         if cfg.fix_flagged and flagged:
-            await _repair_flagged(
+            attempted, accepted = await _repair_flagged(
                 client, batches, results, flagged, cfg, file_context)
+            await _repair_cues(
+                client, batches, results, extras, attempted, accepted, cfg,
+                file_context)
+        left = _surviving_by_cue(results, extras, accepted)
+        surviving = {(flag.block, flag.cause)
+                     for flags in left.values() for flag in flags}
+        if raised:
+            summary = _flag_summary(raised, surviving, left)
+            _note(cfg, colors.yellow(summary) if left else colors.green(summary))
+            for line in _flag_lines(left):
+                _note(cfg, colors.yellow(line))
 
     translated: list[SubtitleBlock] = []
     for r in results:
@@ -419,6 +570,7 @@ async def translate_file_async(
         )
         print(colors.dim(f"  LLM calls: {made.total} ({describe_calls(made)})"))
         print(colors.dim(f"  Output: {output_path}"))
+    return FileReport(tuple(sorted(left)))
 
 
 @dataclass
