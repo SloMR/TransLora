@@ -179,7 +179,7 @@ def test_a_vocalized_tail_is_stripped_before_the_file_is_written(
     written = output.read_text(encoding="utf-8")
     assert VOCALIZED_AR not in written
     assert written.count(PLAIN_AR) == 4
-    assert any("Removed diacritics from 1 cue(s)" in w for w in warnings)
+    assert any("Removed diacritics from 1 line(s)" in w for w in warnings)
 
 
 def test_a_latin_target_is_never_touched_by_the_orthography_pass(
@@ -223,7 +223,7 @@ def test_a_file_that_came_back_in_the_wrong_variant_is_reported(
 ) -> None:
     warnings = _run_colloquial(tmp_path, cfg, monkeypatch)
     assert any("Output looks like Egyptian rather than the standard written "
-               "form (4 of 4 cues)" in w for w in warnings)
+               "form (4 of 4 lines)" in w for w in warnings)
 
 
 def test_the_variant_a_user_asked_for_is_not_reported(
@@ -533,7 +533,7 @@ def test_a_phrase_the_file_never_settled_on_is_reported(
     warnings, _ = _run_motif(tmp_path, cfg, monkeypatch, _SPLIT)
     assert sum("crosses the line" in w for w in warnings) == 1
     assert any("'crosses the line' is rendered 6 different ways across 6 "
-               "cues; no wording is shared by all of them" in w
+               "lines; no wording is shared by all of them" in w
                for w in warnings)
 
 

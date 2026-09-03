@@ -228,7 +228,7 @@ def _normalize_file_orthography(
     changed = sum(1 for before, after in zip(normalized, blocks, strict=True)
                   if before.text != after.text)
     if changed:
-        cfg.warn(f"    Removed diacritics from {changed} cue(s): the rest of "
+        cfg.warn(f"    Removed diacritics from {changed} line(s): the rest of "
                  f"the file is unvocalized")
     # Reported, never rewritten: a variant is a translation decision, and the
     # markers are evidence of one, not proof.

@@ -694,7 +694,7 @@ def test_the_split_carries_the_cause_the_repair_groups_on():
 
 def test_the_warning_names_the_phrase_the_count_and_the_split():
     assert phrase_split_message(PhraseSplit("the line", 4, 3, (1, 2, 3, 4))) == (
-        "'the line' is rendered 3 different ways across 4 cues; no wording is "
+        "'the line' is rendered 3 different ways across 4 lines; no wording is "
         "shared by all of them"
     )
 

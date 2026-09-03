@@ -133,13 +133,13 @@ describe('buildFixFlaggedUserMessage', () => {
   it('lists the problems ahead of the request the batch already had', () => {
     const original = buildUserMessage('English', 'Arabic', WIRE, '', []);
     const msg = buildFixFlaggedUserMessage(original, [
-      "block 236: text from the next cue appears here ('الخط')",
+      "block 236: text from the next line appears here ('الخط')",
       'block 149: the formatting tags {\\i1}...{\\i0} were dropped',
     ]);
     expect(msg).toBe(
       'The previous attempt had these problems - fix ONLY these, keep '
       + 'everything else identical:\n'
-      + "- block 236: text from the next cue appears here ('الخط')\n"
+      + "- block 236: text from the next line appears here ('الخط')\n"
       + '- block 149: the formatting tags {\\i1}...{\\i0} were dropped\n\n'
       + original,
     );

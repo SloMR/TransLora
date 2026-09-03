@@ -665,7 +665,7 @@ def test_the_flag_causes_are_named_identically_in_both_trees(cause: str) -> None
 VARIANT_DRIFT_FRAGMENTS = (
     "Output looks like ",
     " rather than the standard written form (",
-    " cues). Pass --dialect to ask for it deliberately, or rerun.",
+    " lines). Pass --dialect to ask for it deliberately, or rerun.",
 )
 
 
@@ -686,7 +686,7 @@ def test_the_variant_drift_warning_is_worded_identically_in_both_trees(
 PHRASE_SPLIT_FRAGMENTS = (
     " is rendered ",
     " different ways across ",
-    " cues; no wording is shared by all of them",
+    " lines; no wording is shared by all of them",
 )
 
 

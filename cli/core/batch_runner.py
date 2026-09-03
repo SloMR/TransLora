@@ -120,7 +120,7 @@ def _dash_flag(src: SubtitleBlock, output_text: str) -> BatchFlag:
         block=src.number,
         message=(f"Block {src.number}: speaker dashes changed "
                  f"({source} -> {output})"),
-        problem=(f"block {src.number}: the source cue opens {source} line(s) "
+        problem=(f"block {src.number}: the source opens {source} line(s) "
                  f"with a dialogue dash and the translation opens {output}; "
                  f"keep one line per speaker"),
         cause="dashes",
@@ -190,7 +190,7 @@ def _finalize_batch(
         BatchFlag(
             block=shift.first,
             message=shift_message(shift),
-            problem=(f"block {shift.first}: text from the next cue appears "
+            problem=(f"block {shift.first}: text from the next line appears "
                      f"here ('{shift.run}')"),
             cause="shift",
         )

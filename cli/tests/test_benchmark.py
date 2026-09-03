@@ -251,7 +251,7 @@ def test_the_coverage_rule_is_what_silences_the_word_reuse_pairs(run) -> None:
 
 def test_the_flag_names_the_shared_run(run) -> None:
     assert (
-        "Blocks 5-6: 'بوابة المرفأ' appears in both cues - "
+        "Blocks 5-6: 'بوابة المرفأ' appears in both lines - "
         "text may have shifted between them"
     ) in detect_cross_cue_shift(*run)
 
@@ -503,7 +503,7 @@ def test_vocalisation_stripping_leaves_a_non_arabic_file_untouched(
 
 
 def test_vocalisation_stripping_is_licensed_by_the_target_too(run) -> None:
-    """The same Arabic cues, declared Latin, come back untouched: the gate is
+    """The same Arabic lines, declared Latin, come back untouched: the gate is
     the target's script, not what the characters happen to be."""
     _, output = run
     assert normalize_diacritics(output, "latin") == output

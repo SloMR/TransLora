@@ -453,7 +453,7 @@ class PhraseSplit:
 
 def phrase_split_message(split: PhraseSplit) -> str:
     return (f"'{split.phrase}' is rendered {split.distinct_renderings} "
-            f"different ways across {split.occurrences} cues; no wording is "
+            f"different ways across {split.occurrences} lines; no wording is "
             f"shared by all of them")
 
 

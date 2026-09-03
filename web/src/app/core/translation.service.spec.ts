@@ -1114,7 +1114,7 @@ describe('TranslationService', () => {
         ['gates must close and lock.', 'الخط.'],
       ]);
       expect(notices).toEqual([
-        "Blocks 1-2: 'الخط' appears in both cues - text may have shifted between them",
+        "Blocks 1-2: 'الخط' appears in both lines - text may have shifted between them",
       ]);
     });
 
@@ -1281,7 +1281,7 @@ describe('TranslationService', () => {
       (await nextRequest('the batch')).flush(chat('1\nهل وقعت السجل؟ نادية وقعته.'));
       const repair = await nextRequest('the flagged-batch retry');
       expect(userMessageOf(repair)).toContain(
-        'block 1: the source cue opens 2 line(s) with a dialogue dash and the '
+        'block 1: the source opens 2 line(s) with a dialogue dash and the '
         + 'translation opens 0',
       );
       repair.flush(chat('1\n- هل وقعت السجل؟\n- نادية وقعته.'));
@@ -1558,7 +1558,7 @@ describe('TranslationService', () => {
       // per-batch check can see it, because every cue is fine on its own.
       expect(await runVariant(2)).toContain(
         'Output looks like Egyptian rather than the standard written form '
-        + '(2 of 4 cues). Pass --dialect to ask for it deliberately, or rerun.',
+        + '(2 of 4 lines). Pass --dialect to ask for it deliberately, or rerun.',
       );
     });
 
@@ -1575,7 +1575,7 @@ describe('TranslationService', () => {
 
   describe('file-level phrase consistency', () => {
     const SPLIT_MESSAGE =
-      "'night shift' is rendered 4 different ways across 4 cues; "
+      "'night shift' is rendered 4 different ways across 4 lines; "
       + 'no wording is shared by all of them';
 
     /** One cue per batch, all repeating one phrase, answered in turn. */

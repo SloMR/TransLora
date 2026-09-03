@@ -589,7 +589,7 @@ def find_cross_cue_shifts(
 
 def shift_message(shift: CueShift) -> str:
     return (f"Blocks {shift.first}-{shift.second}: '{shift.run}' appears in "
-            f"both cues - text may have shifted between them")
+            f"both lines - text may have shifted between them")
 
 
 def _last_visible_index(text: str, start: int | None = None) -> int:
@@ -745,5 +745,5 @@ def detect_variant_drift(
 
 def variant_drift_message(drift: VariantDrift) -> str:
     return (f"Output looks like {drift.variant} rather than the standard "
-            f"written form ({drift.cues} of {drift.total} cues). Pass "
+            f"written form ({drift.cues} of {drift.total} lines). Pass "
             f"--dialect to ask for it deliberately, or rerun.")
