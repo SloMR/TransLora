@@ -11,7 +11,9 @@ requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
     "httpx>=0.28.1",
+    "platformdirs>=4",
     "pysubs2>=1.9.0",
+    "questionary>=2.1",
 ]
 
 [project.optional-dependencies]
@@ -19,14 +21,24 @@ dev = [
     "pytest>=9.1.1",
 ]
 
-# Ship nothing: `core` is a script-local package name, not one to squat on PyPI.
+# `translora` on the PATH of whatever installed it (`uv run translora`,
+# `pipx install ./cli`, `pip install ./cli`). `python translora.py` still works.
+[project.scripts]
+translora = "translora:main"
+
+# Not for PyPI: `core` is this tool's own package name, not one to squat on.
 [tool.setuptools]
-packages = []
+py-modules = ["translora"]
+packages = ["core", "core.formats"]
 
 [tool.uv]
-package = false
+package = true
+# Rebuild the wheel when the code changes, not only when this file does:
+# `uv tool install --force ./cli` would otherwise reinstall a stale build.
+cache-keys = [{ file = "pyproject.toml" }, { file = "translora.py" }, { file = "core/**/*.py" }]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-ra"
+

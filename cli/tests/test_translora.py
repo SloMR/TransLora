@@ -12,7 +12,7 @@ import translora
 from translora import RunTotals, _collect_files, _plan_jobs, _run
 
 from core.batch_runner import FileTranslationError
-from core.cli_args import EXIT_FAILURE, EXIT_OK, build_parser
+from core.cli_args import EXIT_FAILURE, EXIT_OK, apply_provider, build_parser, missing_flags
 from core.constants import (
     DEFAULT_DIALECT,
     DEFAULT_FIX_FLAGGED,
@@ -191,9 +191,35 @@ def test_target_must_not_be_blank() -> None:
     assert "must not be empty" in str(excinfo.value)
 
 
-def test_missing_required_arguments_exit_non_zero() -> None:
-    with pytest.raises(SystemExit):
-        _args("a.srt")
+def test_missing_flags_are_named_and_refused_away_from_a_terminal(monkeypatch) -> None:
+    # The parser accepts the bare command: at a terminal the gaps are asked
+    # for. Piped, the run must not hang on a prompt nobody will answer.
+    args = _args("a.srt")
+    assert missing_flags(args) == ["--target", "--api-url (or --provider)"]
+    assert missing_flags(_args()) == ["files", "--target", "--api-url (or --provider)"]
+    monkeypatch.setattr(translora, "can_ask", lambda: False)
+    monkeypatch.setattr(sys, "argv", ["translora", "a.srt"])
+    with pytest.raises(SystemExit) as exit_info:
+        translora.main()
+    # The parser's error exit: non-zero, and it names what to pass.
+    assert exit_info.value.code not in (0, None)
+    assert "--target" in str(exit_info.value.code)
+
+
+def test_provider_stands_in_for_the_flags_it_implies() -> None:
+    args = _args("a.srt", "-t", "Arabic", "--provider", "groq")
+    apply_provider(args)
+    assert args.api_url == "https://api.groq.com/openai/v1/chat/completions"
+    assert args.model == "openai/gpt-oss-20b"  # the cheapest
+    assert args.concurrency == 3
+
+
+def test_explicit_flags_win_over_the_provider_preset() -> None:
+    args = _args("a.srt", "-t", "Arabic", "--provider", "openai",
+                 "--model", "gpt-5.5", "-c", "2")
+    apply_provider(args)
+    assert (args.model, args.concurrency) == ("gpt-5.5", 2)
+    assert args.api_url == "https://api.openai.com/v1/chat/completions"
 
 
 # === Exit codes ==============================================================

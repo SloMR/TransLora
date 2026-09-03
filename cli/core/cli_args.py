@@ -46,6 +46,8 @@ API_KEY_ENV = "TRANSLORA_API_KEY"
 REVIEW_API_KEY_ENV = "TRANSLORA_REVIEW_API_KEY"
 
 # Documented in EPILOG — scripts and CI depend on these.
+SUBTITLE_EXTS = frozenset({".srt", ".vtt", ".ass", ".ssa", ".sub", ".sbv"})
+
 EXIT_OK = 0
 EXIT_FAILURE = 1
 EXIT_INTERRUPTED = 130
@@ -54,29 +56,29 @@ EXIT_INTERRUPTED = 130
 EPILOG = f"""\
 examples:
   # Local OpenAI-compatible server (no key usually needed)
-  python translora.py movie.srt -s English -t Arabic \\
+  translora movie.srt -s English -t Arabic \\
     --api-url http://127.0.0.1:8080/v1/chat/completions
 
   # Cloud provider (any OpenAI-compatible endpoint)
-  python translora.py movie.srt -s English -t Arabic \\
+  translora movie.srt -s English -t Arabic \\
     --api-url https://<provider>/v1/chat/completions \\
     --api-key <key> --model <model-name> -c 10
 
   # Translate a whole folder in parallel
-  python translora.py ./subs/ -s English -t Arabic \\
+  translora ./subs/ -s English -t Arabic \\
     --api-url ... --api-key ... --model ... -c 5 -pf 3
 
   # Scan one episode, then reuse its cast for the rest of the season
-  python translora.py ep01.srt -t Arabic --api-url ... --glossary-out cast.json
-  python translora.py ./season/ -t Arabic --api-url ... --glossary-in cast.json
+  translora ep01.srt -t Arabic --api-url ... --glossary-out cast.json
+  translora ./season/ -t Arabic --api-url ... --glossary-in cast.json
 
   # Send only the review pass to a stronger model
-  python translora.py movie.srt -s English -t Arabic --api-url ... \\
+  translora movie.srt -s English -t Arabic --api-url ... \\
     --review-api-url https://<provider>/v1/chat/completions \\
     --review-api-key <key> --review-model <stronger-model>
 
   # Pin the variant and the register, and cap the line length yourself
-  python translora.py movie.srt -t Arabic --api-url ... \\
+  translora movie.srt -t Arabic --api-url ... \\
     --dialect "Saudi Arabic" --formality informal --max-line-chars 38
 
 line norms:
@@ -168,13 +170,15 @@ def build_parser(version: str) -> argparse.ArgumentParser:
     )
     p.add_argument("--version", action="version",
                    version=f"TransLora CLI {version}")
-    p.add_argument("files", nargs="+", type=Path,
+    # Optional: `translora` alone opens the guided session at a terminal.
+    p.add_argument("files", nargs="*", type=Path,
                    help="subtitle files or directories (.srt, .vtt, .ass, ...)")
     p.add_argument("--source", "-s", default="",
                    help="Source language (e.g. English, French). "
                         "Omit to auto-detect — useful for mixed-language batches.")
     # A blank target would ask for "nothing" and name the output `movie..srt`.
-    p.add_argument("--target", "-t", required=True, type=_non_empty,
+    # Not required here: at a terminal, whatever is missing is asked for.
+    p.add_argument("--target", "-t", default=None, type=_non_empty,
                    help="Target language (e.g. Arabic, Spanish, Korean)")
     p.add_argument("--quality", "-q", choices=QUALITY_CHOICES, default=None,
                    help="A quality bundle instead of the individual knobs: fast "
@@ -275,7 +279,7 @@ def build_parser(version: str) -> argparse.ArgumentParser:
                         "own register).")
     # default=None, not "": argparse runs `type` over a string default.
     p.add_argument("--dialect", type=_non_empty, default=None, metavar="TEXT",
-                   help="Target variant, e.g. \"Egyptian Arabic\", \"Brazilian "
+                   help="Target variant, e.g. \"Saudi Arabic\", \"Brazilian "
                         "Portuguese\". Also used as the prepass register instead "
                         "of the scanned guess.")
     p.add_argument("--max-line-chars", type=_int_at_least(1), default=None,
@@ -305,6 +309,19 @@ def build_parser(version: str) -> argparse.ArgumentParser:
                         "count and the script's line length (deterministic, "
                         "no extra API calls).")
     return p
+
+
+def missing_flags(args) -> list[str]:
+    """What a scripted command left out and cannot default. At a terminal the
+    guided session asks instead; a pipe or a CI job is told what to pass."""
+    missing = []
+    if not args.files:
+        missing.append("files")
+    if not args.target:
+        missing.append("--target")
+    if not args.api_url and not args.provider:
+        missing.append("--api-url (or --provider)")
+    return missing
 
 
 def apply_quality(args, parser: argparse.ArgumentParser) -> None:

@@ -17,8 +17,12 @@ from core.cli_args import (
     EXIT_INTERRUPTED,
     EXIT_OK,
     REVIEW_API_KEY_ENV,
+    SUBTITLE_EXTS,
     Job,
+    apply_provider,
+    apply_quality,
     build_parser,
+    missing_flags,
     print_dry_run,
 )
 from core.config import TranslationConfig, _stderr_warn, dialect_notes
@@ -26,12 +30,12 @@ from core.constants import DEFAULT_DIALECT
 from core.languages import lang_code
 from core.live_status import Colors, LiveLine, Ticker, restore_terminal
 from core.run_stats import describe_calls
+from core.session import QuestionaryPrompts, can_ask, run_session
 from core.time_tracker import format_duration
 from core.translator import FileReport, translate_file_async
 
 __version__ = "0.5.0"
 
-SUBTITLE_EXTS = {".srt", ".vtt", ".ass", ".ssa", ".sub", ".sbv"}
 C = Colors()
 
 
@@ -346,14 +350,55 @@ async def _run(args, totals: RunTotals) -> int:
     return EXIT_FAILURE if (totals.failed or refused) else EXIT_OK
 
 
+def _wants_session(args) -> bool:
+    """Files alone, or nothing at all, and not a dry run: the person wants to
+    be asked, not to remember flags."""
+    return (not args.dry_run and not args.target and not args.provider
+            and not args.api_url and not args.model and not args.quality)
+
+
+def _run_argv(parser, argv: list[str], api_key: str) -> int:
+    """One run as the guided session spells it: the same path a script takes,
+    with the key handed over directly so it never touches the command line."""
+    args = parser.parse_args(argv)
+    args.api_key = api_key or os.environ.get(API_KEY_ENV) or "none"
+    args.review_api_key = os.environ.get(REVIEW_API_KEY_ENV) or ""
+    apply_provider(args)
+    apply_quality(args, parser)
+    totals = RunTotals()
+    try:
+        return asyncio.run(_run(args, totals))
+    except KeyboardInterrupt:
+        restore_terminal()
+        _print_cancelled(totals, args.resume)
+        return EXIT_INTERRUPTED
+
+
 def main() -> None:
-    args = build_parser(__version__).parse_args()
+    parser = build_parser(__version__)
+    args = parser.parse_args()
+    key_in_env = bool(os.environ.get(API_KEY_ENV))
     if not args.api_key:
         # Keeps the key out of argv, shell history and `docker inspect`.
         args.api_key = os.environ.get(API_KEY_ENV) or "none"
     if not args.review_api_key:
         # Empty, not "none": empty means "use the main provider's key".
         args.review_api_key = os.environ.get(REVIEW_API_KEY_ENV) or ""
+
+    # Nothing but files (or nothing at all) at a terminal: the guided session.
+    # Flags are for scripts, and a script that left one out is told which.
+    if _wants_session(args):
+        if can_ask():
+            sys.exit(run_session(
+                [str(f) for f in args.files], QuestionaryPrompts(),
+                lambda argv, key: _run_argv(parser, argv, key), key_in_env, __version__,
+            ))
+        parser.error("missing " + " and ".join(missing_flags(args))
+                     + " (run at a terminal for the guided session instead)")
+    if missing_flags(args):
+        parser.error("missing " + " and ".join(missing_flags(args)))
+    apply_provider(args)
+    apply_quality(args, parser)
 
     totals = RunTotals()
     try:

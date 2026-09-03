@@ -579,7 +579,7 @@ def test_shared_string_sets_are_identical_in_both_trees(name: str) -> None:
     # What separates an idiom's target from a definition of the idiom.
     ("IDIOM_MAX_EXPANSION", 2.5),
     ("IDIOM_MAX_TARGET_CHARS", 40),
-    # Share of a file's cues that must carry a variant's own function words
+    # Share of a file's lines that must carry a variant's own function words
     # before the run says the target variant was ignored.
     ("VARIANT_DRIFT_FRACTION", 0.15),
     # The file-level consistency check's own phrase floor — deliberately
