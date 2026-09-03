@@ -34,7 +34,7 @@ from core.session import QuestionaryPrompts, can_ask, run_session
 from core.time_tracker import format_duration
 from core.translator import FileReport, translate_file_async
 
-__version__ = "0.5.0"
+__version__ = "1.0.0"
 
 C = Colors()
 
