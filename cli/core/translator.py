@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import re
 import time
@@ -42,6 +43,8 @@ from .repair import (
     variant_drift_message,
 )
 from .resume import BatchProgress, progress_path, run_key
+from .run_display import RunDisplay
+from .run_progress import ProgressMeter
 from .run_stats import (
     adequacy_sample_size,
     describe_calls,
@@ -124,11 +127,11 @@ def _check_output_writable(output_path: Path) -> None:
 
 
 def _note(cfg: TranslationConfig, message: str) -> None:
-    """Progress detail: printed in single-file mode, routed to warn otherwise."""
+    """Progress detail: said in single-file mode, routed to warn otherwise."""
     if cfg.quiet:
         cfg.warn(message)
     else:
-        print(message)
+        cfg.say(message)
 
 
 def _load_glossary_for(
@@ -162,22 +165,22 @@ async def _build_file_context(
 ) -> FileContext:
     if cfg.glossary_in:
         if not cfg.quiet:
-            print(colors.dim(f"  Loading glossary from {cfg.glossary_in} "
+            cfg.say(colors.dim(f"  Loading glossary from {cfg.glossary_in} "
                              f"(scan skipped)"))
         file_context = _load_glossary_for(input_path, blocks, cfg)
     else:
         if not cfg.quiet:
-            print(colors.cyan("  Scanning for cast and context..."))
+            cfg.say(colors.cyan("  Scanning for cast and context..."))
         file_context = await extract_file_context(client, blocks, cfg)
 
     if cfg.refine_attribution and attribution_targets(file_context, cfg):
         if not cfg.quiet:
-            print(colors.cyan("  Attributing speakers in two-hander scenes..."))
+            cfg.say(colors.cyan("  Attributing speakers in two-hander scenes..."))
         await refine_scene_attribution(client, file_context, blocks, cfg)
 
     if not cfg.quiet:
         if file_context.is_empty():
-            print(colors.dim("  Glossary: empty (proceeding without context hints)"))
+            cfg.say(colors.dim("  Glossary: empty (proceeding without context hints)"))
         else:
             chars = len(file_context.characters)
             terms = len(file_context.terms)
@@ -185,13 +188,13 @@ async def _build_file_context(
             scenes = len(file_context.scenes)
             attrib = sum(1 for s in file_context.scenes if s.attribution)
             notes = len(file_context.notes)
-            print(colors.dim(
+            cfg.say(colors.dim(
                 f"  Glossary: {chars} character(s), {terms} term(s), "
                 f"{idioms} idiom(s), {scenes} scene(s) ({attrib} attributed), "
                 f"{notes} note(s)"
             ))
             if file_context.register:
-                print(colors.dim(f"  Register: {file_context.register}"))
+                cfg.say(colors.dim(f"  Register: {file_context.register}"))
 
     if cfg.glossary_out:
         try:
@@ -200,7 +203,7 @@ async def _build_file_context(
             cfg.warn(f"    Could not write glossary {cfg.glossary_out}: {e}")
         else:
             if not cfg.quiet:
-                print(colors.dim(f"  Glossary written: {cfg.glossary_out}"))
+                cfg.say(colors.dim(f"  Glossary written: {cfg.glossary_out}"))
     return file_context
 
 
@@ -306,7 +309,7 @@ async def _adequacy_flags(
                  "back into")
         return {}
     if not cfg.quiet:
-        print(colors.cyan("  Checking adequacy by back-translation..."))
+        cfg.say(colors.cyan("  Checking adequacy by back-translation..."))
     return await verify_adequacy(client, batches, results, cfg)
 
 
@@ -317,6 +320,7 @@ async def _repair_flagged(
     flagged: dict[int, list[BatchFlag]],
     cfg: TranslationConfig,
     file_context: FileContext | None,
+    meter: ProgressMeter | None = None,
 ) -> tuple[set[int], set[int]]:
     """Re-issue the flagged batches, rarest cause first so a failure spanning
     the file cannot crowd out the one-offs. Each retry is kept only if it comes
@@ -329,6 +333,8 @@ async def _repair_flagged(
     )
     selected = plan.selected
     colors = Colors()
+    if meter is not None:
+        meter.plan("repairing", len(selected))
     if plan.skipped:
         _note(cfg, colors.yellow(
             f"  {plan.flagged} flagged batch(es) across {plan.causes} "
@@ -385,6 +391,7 @@ async def _repair_cues(
     accepted: set[int],
     cfg: TranslationConfig,
     file_context: FileContext | None,
+    meter: ProgressMeter | None = None,
 ) -> None:
     """The narrower second pass: a cue still flagged after the batch retries is
     re-issued on its own, its problems named. A correction the model let slide
@@ -408,6 +415,8 @@ async def _repair_cues(
     numbers = sorted(leftover)
     cap = fix_flagged_cap(len(source))
     chosen = numbers[:cap]
+    if meter is not None:
+        meter.plan("repairing", len(attempted) + len(chosen))
     colors = Colors()
     if len(chosen) < len(numbers):
         _note(cfg, colors.yellow(
@@ -449,6 +458,19 @@ async def _repair_cues(
 
     await asyncio.gather(*(repair_one(n) for n in chosen))
     _note(cfg, colors.green(f"  Repaired {kept}/{len(chosen)} flagged line(s) on their own"))
+
+
+def _plan_run(meter: ProgressMeter, batch_count: int, cfg: TranslationConfig) -> None:
+    """The status line's pace: each step priced as the estimate would price it,
+    to be revised as the run learns. Nothing here is a promise."""
+    scan = 0 if cfg.glossary_in else 1
+    attribution = math.ceil(batch_count / 4) if cfg.refine_attribution else 0
+    meter.plan("prepass", scan + attribution)
+    meter.plan("batches", batch_count * (2 if cfg.review else 1))
+    if cfg.verify_adequacy and cfg.source_lang:
+        meter.plan("checking", adequacy_sample_size(batch_count))
+    if cfg.fix_flagged:
+        meter.plan("repairing", fix_flagged_cap(batch_count))
 
 
 FLAG_LINES_SHOWN = 25
@@ -518,39 +540,70 @@ async def translate_file_async(
     progress = _open_progress(input_path, output_path, cfg, len(doc.blocks))
     started_at = time.time()
     calls_before = cfg.calls.snapshot()
-    # One client for the whole file: prepass and batches share its connection pool.
-    async with httpx.AsyncClient() as client:
-        file_context = await _build_file_context(
-            client, input_path, doc.blocks, cfg, colors,
-        )
-        # The batch clock excludes the prepass, which would otherwise skew the ETA.
-        results = await run_batches(
-            client, batches, cfg, colors, time.time(), file_context, progress,
-        )
-        # The file-level flags, kept apart from the detectors': no retry can
-        # re-measure them, so only an accepted retry of their batch clears them.
-        extras = _flagged_batches(
-            [], await _adequacy_flags(client, batches, results, cfg, colors),
-            _phrase_flags(batches, results, cfg))
-        flagged = _flagged_batches(results, extras)
-        # Snapshot before any repair: the repairs below rewrite what survives.
-        raised = {(flag.block, flag.cause)
-                  for flags in flagged.values() for flag in flags}
-        accepted: set[int] = set()
-        if cfg.fix_flagged and flagged:
-            attempted, accepted = await _repair_flagged(
-                client, batches, results, flagged, cfg, file_context)
-            await _repair_cues(
-                client, batches, results, extras, attempted, accepted, cfg,
-                file_context)
-        left = _surviving_by_cue(results, extras, accepted)
-        surviving = {(flag.block, flag.cause)
-                     for flags in left.values() for flag in flags}
-        if raised:
-            summary = _flag_summary(raised, surviving, left)
-            _note(cfg, colors.yellow(summary) if left else colors.green(summary))
-            for line in _flag_lines(left):
-                _note(cfg, colors.yellow(line))
+    # One status line for the whole file, from the first scan call to the
+    # written output, so no step sits there unexplained. Multi-file runs are
+    # quiet and report per file instead.
+    display = RunDisplay(colors, started_at) if not cfg.quiet else None
+    meter = display.meter if display is not None else None
+    previous_say, previous_warn, previous_listener = cfg.say, cfg.warn, cfg.calls.listener
+    if display is not None:
+        cfg.say = display.say
+        if cfg.verbose:
+            cfg.warn = display.warn
+        cfg.calls.listener = display.meter.count
+        _plan_run(display.meter, len(batches), cfg)
+        display.start()
+    try:
+        # One client for the whole file: prepass and batches share its connection pool.
+        async with httpx.AsyncClient() as client:
+            file_context = await _build_file_context(
+                client, input_path, doc.blocks, cfg, colors,
+            )
+            if meter is not None and cfg.review:
+                # Now the glossary is known, so is which batches earn a review call.
+                reviewed = sum(1 for b in batches if file_context.has_correctable_entries(b))
+                meter.plan("batches", len(batches) + reviewed)
+            results = await run_batches(
+                client, batches, cfg, colors, time.time(), file_context, progress,
+                display,
+            )
+            if meter is not None and cfg.verify_adequacy and cfg.source_lang:
+                meter.begin("checking")
+            # The file-level flags, kept apart from the detectors': no retry can
+            # re-measure them, so only an accepted retry of their batch clears them.
+            extras = _flagged_batches(
+                [], await _adequacy_flags(client, batches, results, cfg, colors),
+                _phrase_flags(batches, results, cfg))
+            flagged = _flagged_batches(results, extras)
+            # Snapshot before any repair: the repairs below rewrite what survives.
+            raised = {(flag.block, flag.cause)
+                      for flags in flagged.values() for flag in flags}
+            accepted: set[int] = set()
+            if cfg.fix_flagged and flagged:
+                if meter is not None:
+                    meter.begin("repairing")
+                attempted, accepted = await _repair_flagged(
+                    client, batches, results, flagged, cfg, file_context, meter)
+                await _repair_cues(
+                    client, batches, results, extras, attempted, accepted, cfg,
+                    file_context, meter)
+            elif meter is not None:
+                # Nothing to repair: the line should not wait for calls that never come.
+                meter.plan("repairing", 0)
+            left = _surviving_by_cue(results, extras, accepted)
+            surviving = {(flag.block, flag.cause)
+                         for flags in left.values() for flag in flags}
+            if raised:
+                summary = _flag_summary(raised, surviving, left)
+                _note(cfg, colors.yellow(summary) if left else colors.green(summary))
+                for line in _flag_lines(left):
+                    _note(cfg, colors.yellow(line))
+    except BaseException:
+        if display is not None:
+            display.stop()
+        raise
+    finally:
+        cfg.say, cfg.warn, cfg.calls.listener = previous_say, previous_warn, previous_listener
 
     translated: list[SubtitleBlock] = []
     for r in results:
@@ -558,6 +611,10 @@ async def translate_file_async(
     translated = _normalize_file_orthography(translated, cfg)
 
     output_path.write_text(doc.rebuild(translated), encoding="utf-8")
+    if display is not None:
+        display.meter.finish()
+        display.render()
+        display.stop()
     if progress is not None:
         progress.discard()
     if not cfg.quiet:

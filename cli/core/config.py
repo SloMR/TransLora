@@ -191,6 +191,9 @@ class TranslationConfig:
     quiet: bool = False
     verbose: bool = False
     warn: Callable[[str], None] = field(default=_silent_warn)
+    # Progress lines for a single-file run; the status line reroutes this so
+    # nothing prints through it.
+    say: Callable[[str], None] = field(default=print)
     # Running per-run call total, incremented by every pass that calls out.
     calls: CallCounts = field(default_factory=CallCounts)
     # What each endpoint turned out to accept, learned once and reused for the
