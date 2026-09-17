@@ -16,9 +16,9 @@
     "npm": ">=10.0.0"
   },
   "dependencies": {
-    "@angular/common": "^22.1.4",
-    "@angular/core": "^22.1.4",
-    "@angular/forms": "^22.1.4",
+    "@angular/common": "^22.1.6",
+    "@angular/core": "^22.1.6",
+    "@angular/forms": "^22.1.6",
     "@angular/platform-browser": "^22.1.4",
     "jszip": "^3.10.1",
     "rxjs": "~7.8.0",
@@ -27,12 +27,12 @@
     "zone.js": "^0.16.2"
   },
   "devDependencies": {
-    "@angular/build": "^22.1.6",
-    "@angular/cli": "^22.1.6",
-    "@angular/compiler-cli": "^22.1.4",
+    "@angular/build": "^22.1.8",
+    "@angular/cli": "^22.1.8",
+    "@angular/compiler-cli": "^22.1.6",
     "@eslint/js": "^10.0.1",
     "@vitest/coverage-v8": "^4.1.11",
-    "angular-eslint": "^22.2.0",
+    "angular-eslint": "^22.5.0",
     "eslint": "^10.9.1",
     "istanbul-lib-instrument": "^6.0.3",
     "jsdom": "^28.1.0",
